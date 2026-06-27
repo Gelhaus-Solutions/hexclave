@@ -38,6 +38,14 @@ const enabledOAuthProviderSchema = yupObject({
   icon_url: schemaFields.oauthProviderIconUrlSchema.optional(),
 });
 
+const pushedConfigErrorSchema = yupObject({
+  message: yupString().defined(),
+}).defined();
+
+const configWarningSchema = yupObject({
+  message: yupString().defined(),
+}).defined();
+
 const onboardingConfigChoiceValues = ["create-new", "link-existing"] as const;
 const onboardingSignInMethodValues = ["credential", "magicLink", "passkey", "google", "github", "microsoft"] as const;
 
@@ -94,6 +102,8 @@ export const projectsCrudAdminReadSchema = yupObject({
   owner_team_id: schemaFields.yupString().nullable().defined(),
   onboarding_status: schemaFields.projectOnboardingStatusSchema.defined(),
   onboarding_state: projectOnboardingStateSchema.nullable().optional(),
+  pushed_config_error: pushedConfigErrorSchema.nullable().defined(),
+  config_warnings: yupArray(configWarningSchema).defined(),
   /** @deprecated */
   config: yupObject({
     allow_localhost: schemaFields.projectAllowLocalhostSchema.defined(),
@@ -124,6 +134,8 @@ export const projectsCrudAdminReadSchema = yupObject({
 export const projectsCrudClientReadSchema = yupObject({
   id: schemaFields.projectIdSchema.defined(),
   display_name: schemaFields.projectDisplayNameSchema.defined(),
+  pushed_config_error: pushedConfigErrorSchema.nullable().defined(),
+  config_warnings: yupArray(configWarningSchema).defined(),
   config: yupObject({
     sign_up_enabled: schemaFields.projectSignUpEnabledSchema.defined(),
     credential_enabled: schemaFields.projectCredentialEnabledSchema.defined(),
