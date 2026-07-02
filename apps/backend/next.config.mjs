@@ -59,6 +59,9 @@ const nextConfig = {
 
   serverExternalPackages: [
     'oidc-provider',
+    // gRPC + protobuf loading doesn't survive webpack bundling; the backend only ever uses the
+    // Temporal *client* (start/signal/query), never worker/workflow code.
+    '@temporalio/client',
   ],
 
   async headers() {

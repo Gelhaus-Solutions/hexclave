@@ -1,0 +1,9 @@
+# Temporal dynamic config for the local development cluster (mounted into temporalio/auto-setup
+# via DYNAMIC_CONFIG_FILE_PATH in docker.compose.yaml).
+#
+# Self-host operators must enable the same flag on their production cluster, otherwise the
+# worker's deployment-version promotion (apps/worker/src/promote-version.ts) fails at startup.
+
+# Worker Deployment Versioning (https://docs.temporal.io/worker-deployments)
+system.enableDeploymentVersions:
+  - value: true

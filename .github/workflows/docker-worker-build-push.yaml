@@ -1,0 +1,76 @@
+name: Docker Worker Build and Push
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' }}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/hexclave-worker
+
+jobs:
+  build-worker:
+    name: Docker Build and Push Worker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          # metadata-action lowercases the image name, so a mixed-case owner (fork) is fine.
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
+            type=sha,prefix=
+            type=match,pattern=\d.\d.\d
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Set push condition
+        id: push-condition
+        run: |
+          if [[ ${{ github.event_name == 'push' }} == 'true' ]]; then
+            echo "should_push=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_push=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login to GitHub Container Registry
+        if: steps.push-condition.outputs.should_push == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./docker/worker/Dockerfile
+          push: ${{ steps.push-condition.outputs.should_push }}
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The full SHA is passed in; the worker derives its 6-char build ID from it (see
+          # apps/worker/src/worker-options.ts).
+          build-args: |
+            GIT_COMMIT_SHA=${{ github.sha }}
+          # GitHub Actions layer cache: reuse unchanged stages across runs so only changed
+          # layers rebuild (pnpm install + turbo build dominate build time).
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

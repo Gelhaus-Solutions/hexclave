@@ -1,0 +1,58 @@
+{
+  "name": "@hexclave/temporal",
+  "version": "1.0.36",
+  "repository": "https://github.com/hexclave/hexclave",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": {
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/esm/index.js"
+    },
+    "./workflows": {
+      "types": "./dist/workflows/index.d.ts",
+      "require": {
+        "default": "./dist/workflows/index.js"
+      },
+      "default": "./dist/esm/workflows/index.js"
+    },
+    "./activities": {
+      "types": "./dist/activities/index.d.ts",
+      "require": {
+        "default": "./dist/activities/index.js"
+      },
+      "default": "./dist/esm/activities/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsdown",
+    "clean": "rimraf dist && rimraf node_modules",
+    "dev": "tsdown --watch",
+    "lint": "eslint --ext .tsx,.ts .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!dist/**/*.test.*"
+  ],
+  "dependencies": {
+    "@temporalio/client": "1.18.1",
+    "@temporalio/common": "1.18.1",
+    "@temporalio/workflow": "1.18.1",
+    "@hexclave/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "1.18.1",
+    "@temporalio/worker": "1.18.1",
+    "@types/node": "20.17.6",
+    "rimraf": "^6.1.2"
+  },
+  "packageManager": "pnpm@11.5.0"
+}

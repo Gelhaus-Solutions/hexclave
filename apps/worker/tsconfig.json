@@ -1,0 +1,16 @@
+{
+  // Extends the backend's tsconfig: the worker typechecks backend sources (via the
+  // temporal-activities seam), and they must compile under the exact same settings as in the
+  // backend itself, otherwise type inference (e.g. yup schema derivations) diverges.
+  "extends": "../backend/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/importMeta"],
+    "incremental": false,
+    "plugins": [],
+    "paths": {
+      "@/*": ["../backend/src/*"]
+    }
+  },
+  "include": ["src/**/*", "scripts/**/*"],
+  "exclude": ["node_modules"]
+}

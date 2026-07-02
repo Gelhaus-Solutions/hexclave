@@ -27,6 +27,7 @@ patchedDependencies:
 
 allowBuilds:
   '@prisma/engines': true
+  '@temporalio/core-bridge': true
   '@quetzallabs/i18n': false
   '@sentry/cli': true
   '@tailwindcss/oxide': true
@@ -40,3 +41,6 @@ allowBuilds:
   protobufjs: true
   puppeteer: true
   sharp: true
+  # @swc/core ships prebuilt native bindings as optional deps; its postinstall is only a
+  # fallback compile step, but @temporalio/worker's workflow bundler needs a working binding.
+  '@swc/core': true

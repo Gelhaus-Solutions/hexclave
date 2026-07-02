@@ -1,0 +1,31 @@
+{
+  "name": "@hexclave/worker",
+  "version": "1.0.36",
+  "repository": "https://github.com/hexclave/hexclave",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "dotenv -e ../backend/.env.development -e .env.development -- tsx watch --clear-screen=false src/index.ts",
+    "start": "tsx src/index.ts",
+    "smoke-import-activities": "dotenv -e ../backend/.env.development -e .env.development -- tsx scripts/smoke-import-activities.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --ext .tsx,.ts .",
+    "clean": "rimraf node_modules"
+  },
+  "dependencies": {
+    "@hexclave/backend": "workspace:*",
+    "@hexclave/shared": "workspace:*",
+    "@hexclave/temporal": "workspace:*",
+    "@sentry/node": "^10.45.0",
+    "@temporalio/client": "1.18.1",
+    "@temporalio/common": "1.18.1",
+    "@temporalio/worker": "1.18.1",
+    "dotenv-cli": "^7.3.0",
+    "tsx": "^4.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.6",
+    "rimraf": "^6.1.2"
+  },
+  "packageManager": "pnpm@11.5.0"
+}
