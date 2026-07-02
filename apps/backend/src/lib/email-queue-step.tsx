@@ -65,10 +65,13 @@ const emailQueueFirstRunKey = Symbol.for("__hexclave_email_queue_first_run_compl
 async function verifyEmailDeliverability(
   email: string,
   shouldSkipDeliverabilityCheck: boolean,
-  emailConfigType: "shared" | "standard"
+  emailConfigType: "shared" | "managed" | "standard"
 ): Promise<EmailableCheckResult> {
-  // Skip deliverability check if requested or using non-shared email config
-  if (shouldSkipDeliverabilityCheck || emailConfigType !== "shared") {
+  // We run the Emailable deliverability check whenever the email goes out through infrastructure whose sending
+  // reputation we own: our shared server ("shared") and custom domains we provision & send on the user's behalf
+  // ("managed", Resend under our account). We skip it for "standard" (the user's own SMTP server or Resend API key),
+  // where the user owns their own deliverability, and whenever the caller explicitly opts out.
+  if (shouldSkipDeliverabilityCheck || (emailConfigType !== "shared" && emailConfigType !== "managed")) {
     return { status: "deliverable", emailableScore: null };
   }
 
@@ -203,32 +206,40 @@ async function failEmailsStuckInSending(additionalWhere?: Prisma.EmailOutboxWher
 export const _forTesting = {
   failEmailsStuckInSending,
   STUCK_EMAIL_TIMEOUT_MS,
+  updateLastExecutionTime,
 };
 
-async function updateLastExecutionTime(): Promise<number> {
-  const key = "EMAIL_QUEUE_METADATA_KEY";
-
+async function updateLastExecutionTime(key = "EMAIL_QUEUE_METADATA_KEY"): Promise<number> {
   // This query atomically claims the next execution slot and returns the delta.
-  // It uses FOR UPDATE to lock the row, preventing concurrent workers from reading
-  // the same previous timestamp. The pattern is:
+  // It uses FOR UPDATE to lock the row, preventing concurrent workers from reading the
+  // same previous timestamp. Use clock_timestamp(), not NOW(): NOW() is fixed at the
+  // transaction start, so a transaction that started earlier but acquired the row lock
+  // later could otherwise move lastExecutedAt backwards by a few milliseconds.
+  // The pattern is:
   // 1. Try UPDATE first (locks row with FOR UPDATE, returns old and new timestamps)
   // 2. If no row exists, INSERT (with ON CONFLICT DO NOTHING for race handling)
   // 3. Compute delta based on the result
-  const [{ delta }] = await globalPrismaClient.$queryRaw<{ delta: number }[]>`
-    WITH now_ts AS (
-      SELECT NOW() AS now
-    ),
-    do_update AS (
+  const [{ delta: rawDelta }] = await globalPrismaClient.$queryRaw<{ delta: number }[]>`
+    WITH do_update AS (
       -- Update existing row, locking it first and capturing the old timestamp
       UPDATE "EmailOutboxProcessingMetadata" AS m
       SET 
-        "updatedAt" = (SELECT now FROM now_ts),
-        "lastExecutedAt" = (SELECT now FROM now_ts)
+        "updatedAt" = old.next_timestamp,
+        "lastExecutedAt" = old.next_timestamp
       FROM (
-        SELECT "key", "lastExecutedAt" AS previous_timestamp
-      FROM "EmailOutboxProcessingMetadata"
-      WHERE "key" = ${key}
-        FOR UPDATE
+        SELECT
+          locked."key",
+          locked."lastExecutedAt" AS previous_timestamp,
+          GREATEST(locked.observed_timestamp, COALESCE(locked."lastExecutedAt", locked.observed_timestamp)) AS next_timestamp
+        FROM (
+          SELECT
+            "key",
+            "lastExecutedAt",
+            clock_timestamp()::timestamp(3) AS observed_timestamp
+          FROM "EmailOutboxProcessingMetadata"
+          WHERE "key" = ${key}
+            FOR UPDATE
+        ) AS locked
       ) AS old
       WHERE m."key" = old."key"
       RETURNING old.previous_timestamp, m."lastExecutedAt" AS new_timestamp
@@ -236,7 +247,8 @@ async function updateLastExecutionTime(): Promise<number> {
     do_insert AS (
       -- Insert new row if no existing row was updated
       INSERT INTO "EmailOutboxProcessingMetadata" ("key", "lastExecutedAt", "updatedAt")
-      SELECT ${key}, (SELECT now FROM now_ts), (SELECT now FROM now_ts)
+      SELECT ${key}, observed_timestamp, observed_timestamp
+      FROM (SELECT clock_timestamp()::timestamp(3) AS observed_timestamp) AS now_ts
       WHERE NOT EXISTS (SELECT 1 FROM do_update)
       ON CONFLICT ("key") DO NOTHING
       RETURNING NULL::timestamp AS previous_timestamp, "lastExecutedAt" AS new_timestamp
@@ -260,9 +272,10 @@ async function updateLastExecutionTime(): Promise<number> {
     END AS delta;
   `;
 
+  const delta = Object.is(rawDelta, -0) ? 0 : Number(rawDelta);
+
   if (delta < 0) {
-    // TODO: why does this happen, actually? investigate.
-    console.warn("Email queue step delta is negative. Not sure why it happened. Ignoring the delta. TODO investigate", { delta });
+    console.warn("Email queue step delta is negative after monotonic timestamp update; ignoring the delta so the send quota cannot go negative", { delta });
     return 0;
   }
 

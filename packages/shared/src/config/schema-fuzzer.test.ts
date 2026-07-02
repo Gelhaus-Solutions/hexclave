@@ -70,17 +70,6 @@ const branchSchemaFuzzerConfig = [{
     }],
     signUpRulesDefaultAction: ["allow", "reject"],
   }],
-  dbSync: [{
-    externalDatabases: [{
-      "some-external-db-id": [{
-        type: ["postgres"] as const,
-        connectionString: [
-          "postgres://user:password@host:port/database",
-          "some-connection-string",
-        ],
-      }],
-    }],
-  }],
   dataVault: [{
     stores: [{
       "some-store-id": [{
@@ -277,6 +266,17 @@ const environmentSchemaFuzzerConfig = [{
       nextResponseMinutes: [null, 30, 120] as (number | null)[],
     }],
     defaultPriority: ["low", "normal", "high", "urgent"] as const,
+  }],
+  dbSync: [{
+    externalDatabases: [{
+      "some-external-db-id": [{
+        type: ["postgres"] as const,
+        connectionString: [
+          "postgres://user:password@db.example.com:5432/database",
+          "postgresql://user:password@db.example.net/database",
+        ],
+      }],
+    }],
   }],
   analytics: [{
     queryFolders: [{

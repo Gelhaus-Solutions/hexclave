@@ -3,7 +3,8 @@
 import { InlineSaveDiscard } from "@/components/inline-save-discard";
 import { ActionDialog, BrandIcons, BrowserFrame, FormControl, FormField, FormItem, FormLabel, FormMessage, InlineCode, Label, SimpleTooltip, Switch, Typography } from "@/components/ui";
 import { FormDialog } from "@/components/form-dialog";
-import { useUpdateConfig } from "@/lib/config-update";
+import { HostedAuthMethodPreview } from "@/components/hosted-auth-preview";
+import { useUpdateConfig } from "@/components/config-update";
 import { useDashboardInternalUser } from "@/lib/dashboard-user";
 import {
   DesignAlert,
@@ -34,7 +35,7 @@ import {
   UserCircleIcon,
   UserPlusIcon,
 } from "@phosphor-icons/react";
-import { AdminProject, AuthPage } from "@hexclave/next";
+import { AdminProject } from "@hexclave/next";
 import type { CompleteConfig } from "@hexclave/shared/dist/config/schema";
 import type { RestrictedReason } from "@hexclave/shared/dist/schema-fields";
 import { urlSchema, yupBoolean, yupObject, yupString } from "@hexclave/shared/dist/schema-fields";
@@ -937,6 +938,7 @@ type PreviewProvider = { id: string, displayName?: string, iconUrl?: string };
 
 function LivePreviewBody({
   config,
+  projectDisplayName,
   passwordEnabled,
   otpEnabled,
   passkeyEnabled,
@@ -945,6 +947,7 @@ function LivePreviewBody({
   enabledProviders,
 }: {
   config: AdminProject['config'],
+  projectDisplayName: string,
   passwordEnabled: boolean,
   otpEnabled: boolean,
   passkeyEnabled: boolean,
@@ -958,17 +961,17 @@ function LivePreviewBody({
         <div className="flex flex-col items-center justify-center min-h-[400px]">
           <div className='w-full sm:max-w-xs m-auto scale-90 pointer-events-none' inert>
             <div className="absolute inset-0 bg-transparent z-10"></div>
-            <AuthPage
-              type="sign-in"
-              mockProject={{
+            <HostedAuthMethodPreview
+              project={{
+                displayName: projectDisplayName,
                 config: {
-                  ...config,
+                  signUpEnabled: config.signUpEnabled,
                   credentialEnabled: passwordEnabled,
                   magicLinkEnabled: otpEnabled,
-                  passkeyEnabled: passkeyEnabled,
+                  passkeyEnabled,
                   mtlsEnabled: mtlsEnabled,
                   anonymousSignInEnabled: anonymousSignInEnabled,
-                  oauthProviders: enabledProviders,
+                  oauthProviders: enabledProviders.map((provider) => ({ id: provider.id })),
                 },
               }}
             />
@@ -1422,6 +1425,7 @@ export default function PageClient() {
             >
               <LivePreviewBody
                 config={project.config}
+                projectDisplayName={project.displayName}
                 passwordEnabled={passwordEnabled}
                 otpEnabled={otpEnabled}
                 passkeyEnabled={passkeyEnabled}
