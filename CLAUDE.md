@@ -1,3 +1,1 @@
-# Hexclave
-
-@AGENTS.md
+AGENTS.md

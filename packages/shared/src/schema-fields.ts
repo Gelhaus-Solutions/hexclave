@@ -444,10 +444,21 @@ import.meta.vitest?.test("countryCodeSchema", async ({ expect }) => {
   await expect(countryCodeSchema.validate(" us ")).resolves.toBe("US");
   await expect(countryCodeSchema.validate("usa")).rejects.toThrow("must be a 2-letter country code");
 });
-export const intervalSchema = yupTuple<Interval>([yupNumber().min(0).integer().defined(), yupString().oneOf(['millisecond', 'second', 'minute', 'hour', 'day', 'week', 'month', 'year']).defined()]);
-export const dayIntervalSchema = yupTuple<DayInterval>([yupNumber().min(0).integer().defined(), yupString().oneOf(['day', 'week', 'month', 'year']).defined()]);
+// Interval counts must be >= 1: a zero-length interval is meaningless for billing
+// intervals, free trials, and item repeats alike, and a zero repeat interval in
+// particular makes the bulldozer tick loop spin forever on a never-advancing
+// trigger (see apps/bulldozer-js repeatIntervalMs).
+export const intervalSchema = yupTuple<Interval>([yupNumber().min(1).integer().defined(), yupString().oneOf(['millisecond', 'second', 'minute', 'hour', 'day', 'week', 'month', 'year']).defined()]);
+export const dayIntervalSchema = yupTuple<DayInterval>([yupNumber().min(1).integer().defined(), yupString().oneOf(['day', 'week', 'month', 'year']).defined()]);
 export const intervalOrNeverSchema = yupUnion(intervalSchema.defined(), yupString().oneOf(['never']).defined());
 export const dayIntervalOrNeverSchema = yupUnion(dayIntervalSchema.defined(), yupString().oneOf(['never']).defined());
+import.meta.vitest?.test("interval schemas reject a zero/negative count", async ({ expect }) => {
+  await expect(intervalSchema.validate([1, "day"])).resolves.toEqual([1, "day"]);
+  await expect(dayIntervalSchema.validate([2, "month"])).resolves.toEqual([2, "month"]);
+  await expect(intervalSchema.validate([0, "day"])).rejects.toThrow();
+  await expect(dayIntervalSchema.validate([0, "month"])).rejects.toThrow();
+  await expect(dayIntervalSchema.validate([-1, "day"])).rejects.toThrow();
+});
 /**
  * This schema is useful for fields where the user can specify the ID, such as price IDs. It is particularly common
  * for IDs in the config schema.
@@ -604,6 +615,9 @@ export const oauthClientSecretSchema = yupString().meta({ openapiField: { descri
 export const oauthCustomCallbackUrlSchema = urlSchema.meta({ openapiField: { description: 'The OAuth redirect/callback URL sent to the provider. When omitted, the default callback URL is used. Cannot be set for shared providers.', exampleValue: 'https://api.hexclave.com/api/v1/auth/oauth/callback/google' } });
 export const oauthFacebookConfigIdSchema = yupString().meta({ openapiField: { description: 'The configuration id for Facebook business login (for things like ads and marketing). This is only required if you are using the standard OAuth with Facebook and you are using Facebook business login.' } });
 export const oauthMicrosoftTenantIdSchema = yupString().meta({ openapiField: { description: 'The Microsoft tenant id for Microsoft directory. This is only required if you are using the standard OAuth with Microsoft and you have an Azure AD tenant.' } });
+export const oauthAppleTeamIdSchema = yupString().meta({ openapiField: { description: 'Apple Developer Team ID used to mint a client secret for Sign in with Apple.' } });
+export const oauthAppleKeyIdSchema = yupString().meta({ openapiField: { description: 'Apple private key ID used to mint a client secret for Sign in with Apple.' } });
+export const oauthApplePrivateKeySchema = yupString().meta({ openapiField: { description: 'Apple Sign in with Apple private key contents in .p8 PEM format.' } });
 export const oauthAppleBundleIdsSchema = yupArray(yupString().defined()).meta({ openapiField: { description: 'Apple Bundle IDs for native iOS/macOS apps. Required for native Sign In with Apple (in addition to web Apple OAuth which uses the Client ID/Services ID).', exampleValue: ['com.example.ios', 'com.example.macos'] } });
 export const oauthAppleBundleIdSchema = yupString().defined().meta({ openapiField: { description: 'Apple Bundle ID for native iOS/macOS apps.', exampleValue: 'com.example.ios' } });
 export const oauthAccountMergeStrategySchema = yupString().oneOf(['link_method', 'raise_error', 'allow_duplicates']).meta({ openapiField: { description: 'Determines how to handle OAuth logins that match an existing user by email. `link_method` adds the OAuth method to the existing user. `raise_error` rejects the login with an error. `allow_duplicates` creates a new user.', exampleValue: 'link_method' } });

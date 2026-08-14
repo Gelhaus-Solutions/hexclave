@@ -75,9 +75,12 @@ export type AdminOAuthProviderConfig = {
     | {
       type: 'standard',
       clientId: string,
-      clientSecret: string,
+      clientSecret?: string,
       facebookConfigId?: string,
       microsoftTenantId?: string,
+      appleTeamId?: string,
+      appleKeyId?: string,
+      applePrivateKey?: string,
       appleBundleIds?: string[],
     }
     | {

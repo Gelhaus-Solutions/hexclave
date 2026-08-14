@@ -2,7 +2,6 @@ import { KnownErrors, HexclaveAdminInterface } from "@hexclave/shared";
 import { getProductionModeErrors } from "@hexclave/shared/dist/helpers/production-mode";
 import { InternalApiKeyCreateCrudResponse } from "@hexclave/shared/dist/interface/admin-interface";
 import type { AnalyticsClickmapOptions, AnalyticsClickmapResponse, AnalyticsClickmapTokenResponse, MetricsResponse, MetricsUserCounts, UserActivityResponse } from "@hexclave/shared/dist/interface/admin-metrics";
-import { AnalyticsQueryOptions, AnalyticsQueryResponse } from "@hexclave/shared/dist/interface/crud/analytics";
 import { EmailTemplateCrud } from "@hexclave/shared/dist/interface/crud/email-templates";
 import { InternalApiKeysCrud } from "@hexclave/shared/dist/interface/crud/internal-api-keys";
 import { ProjectsCrud } from "@hexclave/shared/dist/interface/crud/projects";
@@ -11,7 +10,7 @@ import type { Transaction, TransactionType } from "@hexclave/shared/dist/interfa
 import type { PaymentSupportedCountry } from "@hexclave/shared/dist/payments/payment-countries";
 import type { RestrictedReason } from "@hexclave/shared/dist/schema-fields";
 import type { MoneyAmount } from "@hexclave/shared/dist/utils/currency-constants";
-import { HexclaveAssertionError, throwErr } from "@hexclave/shared/dist/utils/errors";
+import { HexclaveAssertionError, captureError, throwErr } from "@hexclave/shared/dist/utils/errors";
 import type { Json } from "@hexclave/shared/dist/utils/json";
 import { pick, typedEntries, typedValues } from "@hexclave/shared/dist/utils/objects";
 import { Result } from "@hexclave/shared/dist/utils/results";
@@ -24,6 +23,7 @@ import { AdminProjectPermission, AdminProjectPermissionDefinition, AdminProjectP
 import type { PlanUsage } from "../../plan-usage";
 import { AdminOwnedProject, AdminProject, AdminProjectUpdateOptions, PushConfigOptions, adminProjectUpdateOptionsToCrud } from "../../projects";
 import type { AdminSessionReplay, AdminSessionReplayChunk, ListSessionReplayChunksOptions, ListSessionReplayChunksResult, ListSessionReplaysOptions, ListSessionReplaysResult, SessionReplayAllEventsResult } from "../../session-replays";
+import { AdminWorkflow, AdminWorkflowRun, AdminWorkflowRunDetails, AdminWorkflowRunsFilter, AdminWorkflowSyncResult, AdminWorkflowUpgradeResult, AdminWorkflowVersion, adminWorkflowFromCrud, adminWorkflowRunDetailsFromCrud, adminWorkflowRunFromCrud, adminWorkflowSyncResultFromCrud, adminWorkflowVersionFromCrud, isWorkflowRunDetailsJson } from "../../workflows";
 import { ManagedEmailProviderListItem, ManagedEmailProviderSetupResult, ManagedEmailProviderStatus, EmailOutboxUpdateOptions, StackAdminApp, StackAdminAppConstructorOptions } from "../interfaces/admin-app";
 import { clientVersion, createCache, getDefaultExtraRequestHeaders, getDefaultProjectId, getDefaultPublishableClientKey, getDefaultSecretServerKey, getDefaultSuperSecretAdminKey, resolveApiUrls, resolveConstructorOptions } from "./common";
 import { _HexclaveServerAppImplIncomplete } from "./server-app-impl";
@@ -96,6 +96,9 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
   });
   private readonly _adminEmailDraftsCache = createCache(async () => {
     return await this._interface.listInternalEmailDrafts();
+  });
+  private readonly _adminWorkflowsCache = createCache(async () => {
+    return await this._interface.listWorkflows();
   });
   private readonly _adminTeamPermissionDefinitionsCache = createCache(async () => {
     return await this._interface.listTeamPermissionDefinitions();
@@ -229,9 +232,12 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
           id: p.id,
           type: 'standard',
           clientId: p.client_id ?? throwErr("Client ID is missing"),
-          clientSecret: p.client_secret ?? throwErr("Client secret is missing"),
+          clientSecret: p.id === "apple" ? p.client_secret : p.client_secret ?? throwErr("Client secret is missing"),
           facebookConfigId: p.facebook_config_id,
           microsoftTenantId: p.microsoft_tenant_id,
+          appleTeamId: p.apple_team_id,
+          appleKeyId: p.apple_key_id,
+          applePrivateKey: p.apple_private_key,
           appleBundleIds: p.apple_bundle_ids,
         } as const))),
         emailConfig: data.config.email_config.type === 'shared' ? {
@@ -286,6 +292,40 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
       },
       async resetConfigOverrideKeys(level: "branch" | "environment", keys: string[]): Promise<void> {
         await app._interface.resetConfigOverrideKeys(level, keys);
+        await app._refreshProjectConfig();
+      },
+      async listDeploymentServices() {
+        return await app._interface.listDeploymentServices();
+      },
+      async createDeploymentService(id, build) {
+        const created = await app._interface.createDeploymentService(id, build);
+        await app._refreshProjectConfig();
+        return created;
+      },
+      async updateDeploymentService(serviceId, update) {
+        const updated = await app._interface.updateDeploymentService(serviceId, update);
+        await app._refreshProjectConfig();
+        return updated;
+      },
+      async deleteDeploymentService(serviceId) {
+        await app._interface.deleteDeploymentService(serviceId);
+        await app._refreshProjectConfig();
+      },
+      async listDeploymentRuns(serviceId, options) {
+        return await app._interface.listDeploymentRuns(serviceId, options);
+      },
+      async getDeploymentRunLogs(runId, options) {
+        return await app._interface.getDeploymentRunLogs(runId, options);
+      },
+      async addDeploymentServiceDomain(serviceId, hostname, options) {
+        await app._interface.addDeploymentServiceDomain(serviceId, hostname, options);
+        await app._refreshProjectConfig();
+      },
+      async getDeploymentServiceDomain(serviceId, hostname) {
+        return await app._interface.getDeploymentServiceDomain(serviceId, hostname);
+      },
+      async deleteDeploymentServiceDomain(serviceId, hostname) {
+        await app._interface.deleteDeploymentServiceDomain(serviceId, hostname);
         await app._refreshProjectConfig();
       },
       async getConfigOverride(level: "branch" | "environment"): Promise<Record<string, unknown>> {
@@ -355,6 +395,8 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
       periodStart: new Date(data.period_start_millis),
       periodEnd: new Date(data.period_end_millis),
       nextPlanId: data.next_plan_id,
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- getPlanUsage() returns raw JSON without yup validation, so this field can be undefined at runtime if the backend hasn't deployed the field yet
+      arePlanLimitsEnforced: data.are_plan_limits_enforced ?? true,
       rows: data.rows.map((row) => ({
         itemId: row.item_id,
         displayName: row.display_name,
@@ -492,6 +534,10 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
       }));
     }, [crud]);
   }
+  useWorkflows(): AdminWorkflow[] {
+    const crud = useAsyncCache(this._adminWorkflowsCache, [], "adminApp.useWorkflows()");
+    return useMemo(() => crud.map(adminWorkflowFromCrud), [crud]);
+  }
   // END_PLATFORM
   async listEmailThemes(): Promise<{ id: string, displayName: string }[]> {
     const crud = Result.orThrow(await this._adminEmailThemesCache.getOrWait([], "write-only"));
@@ -509,6 +555,121 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
       themeId: template.theme_id,
       tsxSource: template.tsx_source,
     }));
+  }
+
+  // ─── Workflows (internal-project gated; see the Workflows v1 spec) ───────
+
+  async listWorkflows(): Promise<AdminWorkflow[]> {
+    const crud = Result.orThrow(await this._adminWorkflowsCache.getOrWait([], "write-only"));
+    return crud.map(adminWorkflowFromCrud);
+  }
+
+  async createWorkflow(options: { id: string, displayName?: string, source: string }): Promise<AdminWorkflowSyncResult> {
+    const result = await this._interface.createWorkflow({
+      id: options.id,
+      display_name: options.displayName,
+      source: options.source,
+    });
+    await this._adminWorkflowsCache.refresh([]);
+    return adminWorkflowSyncResultFromCrud(result);
+  }
+
+  async updateWorkflowSource(workflowId: string, source: string): Promise<AdminWorkflowSyncResult> {
+    const result = await this._interface.updateWorkflowSource(workflowId, source);
+    await this._adminWorkflowsCache.refresh([]);
+    return adminWorkflowSyncResultFromCrud(result);
+  }
+
+  async deleteWorkflow(workflowId: string): Promise<void> {
+    await this._interface.deleteWorkflow(workflowId);
+    await this._adminWorkflowsCache.refresh([]);
+  }
+
+  async listWorkflowVersions(workflowId: string): Promise<AdminWorkflowVersion[]> {
+    return (await this._interface.listWorkflowVersions(workflowId)).map(adminWorkflowVersionFromCrud);
+  }
+
+  async listWorkflowRuns(workflowId: string, filter: AdminWorkflowRunsFilter & { includeState: true }): Promise<{ runs: AdminWorkflowRunDetails[], nextCursor: string | null }>;
+  async listWorkflowRuns(workflowId: string, filter?: AdminWorkflowRunsFilter): Promise<{ runs: AdminWorkflowRun[], nextCursor: string | null }>;
+  async listWorkflowRuns(workflowId: string, filter: AdminWorkflowRunsFilter = {}): Promise<{ runs: AdminWorkflowRun[], nextCursor: string | null }> {
+    if (filter.includeState === true) {
+      const result = await this._interface.listWorkflowRuns(workflowId, {
+        state: filter.state,
+        version: filter.version,
+        run_key: filter.runKey,
+        cursor: filter.cursor,
+        limit: filter.limit,
+        include_state: true,
+      });
+      return {
+        runs: result.runs.map((run) => adminWorkflowRunDetailsFromCrud(
+          isWorkflowRunDetailsJson(run)
+            ? run
+            : throwErr("Workflow runs response omitted state after include_state=true"),
+        )),
+        nextCursor: result.next_cursor,
+      };
+    }
+    const result = await this._interface.listWorkflowRuns(workflowId, {
+      state: filter.state,
+      version: filter.version,
+      run_key: filter.runKey,
+      cursor: filter.cursor,
+      limit: filter.limit,
+    });
+    return {
+      runs: result.runs.map(adminWorkflowRunFromCrud),
+      nextCursor: result.next_cursor,
+    };
+  }
+
+  async getWorkflowRun(runId: string): Promise<AdminWorkflowRunDetails> {
+    return adminWorkflowRunDetailsFromCrud(await this._interface.getWorkflowRun(runId));
+  }
+
+  async cancelWorkflowRuns(workflowId: string, filter: { runKey?: string, runId?: string, state?: "queued" | "running" | "sleeping", version?: number } = {}): Promise<{ canceledCount: number }> {
+    const result = await this._interface.cancelWorkflowRuns(workflowId, {
+      run_key: filter.runKey,
+      run_id: filter.runId,
+      state: filter.state,
+      version: filter.version,
+    });
+    await this._adminWorkflowsCache.refresh([]);
+    return { canceledCount: result.canceled_count };
+  }
+
+  async upgradeWorkflowRuns(workflowId: string, options: { toVersion: number, runKey?: string, fromVersion?: number }): Promise<AdminWorkflowUpgradeResult> {
+    const result = await this._interface.upgradeWorkflowRuns(workflowId, {
+      to_version: options.toVersion,
+      run_key: options.runKey,
+      from_version: options.fromVersion,
+    });
+    return {
+      upgradedCount: result.upgraded_count,
+      skipped: result.skipped.map((skip) => ({
+        runId: skip.run_id,
+        runKey: skip.run_key,
+        fromVersion: skip.from_version,
+        diagnostic: {
+          reason: skip.diagnostic.reason,
+          suspendedStepKey: skip.diagnostic.suspended_step_key,
+          foundStepKey: skip.diagnostic.found_step_key,
+          consumedStepKeys: skip.diagnostic.consumed_step_keys,
+          unconsumedStepKeys: skip.diagnostic.unconsumed_step_keys,
+          details: skip.diagnostic.details,
+        },
+      })),
+    };
+  }
+
+  async retryWorkflowRun(runId: string): Promise<void> {
+    await this._interface.retryWorkflowRun(runId);
+    await this._adminWorkflowsCache.refresh([]);
+  }
+
+  async sendWorkflowEvent(name: string, data?: unknown): Promise<{ eventId: string }> {
+    const result = await this._interface.sendWorkflowEvent(name, data ?? null);
+    return { eventId: result.event_id };
   }
 
   async listEmailDrafts(): Promise<{ id: string, displayName: string, themeId: string | undefined | false, tsxSource: string, sentAt: Date | null }[]> {
@@ -909,6 +1070,20 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
         allow_negative: true,
       }
     );
+    const [customerType, customerId] = "userId" in options
+      ? ["user", options.userId] as const
+      : "teamId" in options
+        ? ["team", options.teamId] as const
+        : ["custom", options.customCustomerId] as const;
+    try {
+      // Best-effort: the quantity change is already persisted at this point, so
+      // a cache refresh failure must not make the mutation look failed (a retry
+      // would apply the delta twice).
+      await this._refreshItemCache(customerType, customerId, options.itemId);
+      await this._transactionsCache.invalidateWhere(() => true);
+    } catch (error) {
+      captureError("create-item-quantity-change-cache-refresh", error);
+    }
   }
 
   async refundTransaction(options: {
@@ -1221,10 +1396,6 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
   }
   // END_PLATFORM
 
-  async queryAnalytics(options: AnalyticsQueryOptions): Promise<AnalyticsQueryResponse> {
-    return await this._interface.queryAnalytics(options);
-  }
-
   async getAnalyticsClickmap(options: AnalyticsClickmapOptions): Promise<AnalyticsClickmapResponse> {
     return await this._interface.getAnalyticsClickmap({
       kind: options.kind,
@@ -1262,6 +1433,7 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
 
     const items: AdminSessionReplay[] = response.items.map((r) => ({
       id: r.id,
+      refreshTokenId: r.refresh_token_id,
       projectUser: {
         id: r.project_user.id,
         displayName: r.project_user.display_name,
@@ -1283,6 +1455,7 @@ export class _HexclaveAdminAppImplIncomplete<HasTokenStore extends boolean, Proj
     const response = await this._interface.getSessionReplay(sessionReplayId);
     return {
       id: response.id,
+      refreshTokenId: response.refresh_token_id,
       projectUser: {
         id: response.project_user.id,
         displayName: response.project_user.display_name,

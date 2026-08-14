@@ -18,7 +18,7 @@
     }
   },
   "contextual": {
-   "options": [
+    "options": [
       "copy",
       "view",
       "assistant",
@@ -150,6 +150,7 @@
               "guides/other/self-host",
               "guides/other/managed-email",
               "guides/other/known-errors",
+              "guides/other/dev-tool",
               "migration",
               {
                 "group": "Tutorials",
@@ -169,7 +170,9 @@
           "sdk/overview",
           {
             "group": "Objects",
-            "pages": ["sdk/objects/hexclave-app"]
+            "pages": [
+              "sdk/objects/hexclave-app"
+            ]
           },
           {
             "group": "Types",
@@ -190,7 +193,10 @@
           },
           {
             "group": "Hooks",
-            "pages": ["sdk/hooks/use-hexclave-app", "sdk/hooks/use-user"]
+            "pages": [
+              "sdk/hooks/use-hexclave-app",
+              "sdk/hooks/use-user"
+            ]
           }
         ]
       },
@@ -239,12 +245,18 @@
     }
   },
   "seo": {
-    "metatags": {
-      "robots": "noindex"
-    }
+    "indexing": "all"
   },
   "settings": {
-    "customScripts": ["/apps-sidebar-filter.js", "/code-language-labels.js"]
+    "customScripts": [
+      "/apps-sidebar-filter.js",
+      "/code-language-labels.js"
+    ]
   },
-  "redirects": []
+  "redirects": [
+    {
+      "source": "/guides/going-further/backend-integration",
+      "destination": "/guides/going-further/local-vs-cloud-dashboard"
+    }
+  ]
 }

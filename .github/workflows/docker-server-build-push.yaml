@@ -6,9 +6,10 @@ on:
       - main
       - dev
 
+# Grouped per ref (not per sha) on purpose: this publishes the moving `dev`/`latest` image tags, so runs
+# must stay serialized or an older run could overwrite a newer commit's tag.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' }}
 
 env:
   REGISTRY: ghcr.io
@@ -18,6 +19,7 @@ jobs:
   build-server:
     name: Docker Build and Push Server
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -57,6 +59,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # This fork publishes a single linux/amd64 image to GHCR, so there is no per-platform digest
+      # matrix (and therefore no merge job) to reconcile — the build pushes the release tags directly.
       - name: Build and push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
