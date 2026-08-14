@@ -150,6 +150,7 @@ const docsJson = {
             "group": "Other",
             "pages": [
               "guides/other/self-host",
+              "guides/other/managed-email",
               "guides/other/known-errors",
               "guides/other/dev-tool",
               "migration",
