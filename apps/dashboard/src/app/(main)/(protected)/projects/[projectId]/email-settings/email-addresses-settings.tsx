@@ -3,7 +3,7 @@
 import { SmartFormDialog } from "@/components/form-dialog";
 import { SelectField } from "@/components/form-fields";
 import { DesignAlert, DesignBadge, DesignButton, DesignCard } from "@/components/design-components";
-import { useUpdateConfig } from "@/lib/config-update";
+import { useUpdateConfig } from "@/components/config-update";
 import { EnvelopeSimple, Plus, Trash } from "@phosphor-icons/react";
 import { generateUuid } from "@hexclave/shared/dist/utils/uuids";
 import { stringCompare } from "@hexclave/shared/dist/utils/strings";

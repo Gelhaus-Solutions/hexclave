@@ -1,7 +1,7 @@
 "use client";
 
 import { DesignButton, DesignCard, DesignInput, DesignSelectorDropdown } from "@/components/design-components";
-import { useUpdateConfig } from "@/lib/config-update";
+import { useUpdateConfig } from "@/components/config-update";
 import { Switch, Typography } from "@/components/ui";
 import { runAsynchronouslyWithAlert } from "@hexclave/shared/dist/utils/promises";
 import { useMemo, useState } from "react";
