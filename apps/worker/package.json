@@ -1,6 +1,6 @@
 {
   "name": "@hexclave/worker",
-  "version": "1.0.94",
+  "version": "1.0.97",
   "repository": "https://github.com/hexclave/hexclave",
   "private": true,
   "type": "module",
