@@ -1,6 +1,9 @@
 {
   "name": "@hexclave/monorepo",
   "version": "0.0.0",
+  "contributors": [
+    "Enno Gelhaus <egelhaus@ennogelhaus.de>"
+  ],
   "private": true,
   "repository": "https://github.com/hexclave/hexclave",
   "scripts": {

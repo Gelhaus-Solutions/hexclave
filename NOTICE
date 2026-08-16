@@ -1,0 +1,17 @@
+NOTICE
+======
+
+Hexclave is the work of its original authors, principally Konstantin Wohlwend,
+with Zai Shi, Stan Wohlwend and others. Their copyright and the per-package
+licence files (MIT for client code and examples, AGPLv3 for server components)
+are unchanged by this fork and remain with their authors.
+
+This repository is a FORK maintained by Gelhaus Solutions (Enno Gelhaus).
+Modifications made here are copyright (c) 2026 Gelhaus Solutions (Enno Gelhaus)
+and are distributed under the same per-package licences as the code they modify.
+
+This fork is not affiliated with, sponsored by, or endorsed by the upstream
+project. For upstream itself see https://github.com/hexclave/hexclave.
+
+Contact for this fork: egelhaus@ennogelhaus.de
+https://ennogelhaus.de
