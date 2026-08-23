@@ -58,6 +58,23 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 # copy over the rest of the code for the build
 COPY --from=pruner /app/out/full/ .
 
+# `turbo prune` selects files via git, and .gitignore ignores the *contents* of
+# the generated SDK packages (packages/js, packages/next, packages/react,
+# packages/tanstack-start -- only their package.json is tracked, see the
+# "Generated packages" block in .gitignore). The pruned output therefore carries
+# hollow packages: a package.json with no src/ and no scripts/. Restore the
+# sources that the pruner stage generated with generate-sdks.ts.
+#
+# Without this, @hexclave/next#build dies on its missing scripts/generate-env.ts,
+# and when a warm turbo/GHA cache papers over that failure the dashboard's
+# Next.js build traces the hollow workspace deps into a standalone output made
+# almost entirely of zero-byte files -- an image that builds green and then
+# crash-loops at runtime with ERR_INVALID_PACKAGE_CONFIG.
+COPY --from=pruner /app/packages/js ./packages/js
+COPY --from=pruner /app/packages/next ./packages/next
+COPY --from=pruner /app/packages/react ./packages/react
+COPY --from=pruner /app/packages/tanstack-start ./packages/tanstack-start
+
 # Dashboard still needs standalone output for its Next.js build
 ENV NEXT_CONFIG_OUTPUT=standalone
 
@@ -66,6 +83,25 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     --mount=type=secret,id=TURBO_TOKEN \
     TURBO_TOKEN="$(cat /run/secrets/TURBO_TOKEN 2>/dev/null || true)" \
     pnpm turbo run docker-build --filter=@hexclave/backend... --filter=@hexclave/dashboard...
+
+# Verify the dashboard standalone output is real before it can reach an image.
+# A warm turbo/GHA cache can satisfy a build step that would otherwise fail and
+# leave a standalone tree of zero-byte files behind; the resulting image builds
+# green, passes its TCP healthcheck, and only fails at runtime with
+# ERR_INVALID_PACKAGE_CONFIG -- which also takes the backend down, because
+# entrypoint.sh reaps the sibling process when either service exits. Fail loudly
+# here instead of publishing that image.
+RUN set -eu; \
+    sa=/app/apps/dashboard/.next/standalone; \
+    [ -d "$sa" ] || { echo "FATAL: $sa does not exist" >&2; exit 1; }; \
+    for f in "$sa/apps/dashboard/server.js" "$sa/apps/dashboard/package.json"; do \
+      [ -s "$f" ] || { echo "FATAL: $f is missing or empty -- dashboard build did not produce a usable standalone output" >&2; exit 1; }; \
+    done; \
+    total=$(find "$sa" -type f | wc -l); \
+    empty=$(find "$sa" -type f -size 0 | wc -l); \
+    echo "dashboard standalone: $total files, $empty empty"; \
+    [ "$total" -ge 100 ] || { echo "FATAL: only $total files in standalone output" >&2; exit 1; }; \
+    [ "$((empty * 10))" -le "$total" ] || { echo "FATAL: $empty of $total standalone files are zero bytes" >&2; exit 1; }
 
 # Build the self-host seed script
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store cd apps/backend && pnpm build-self-host-migration-script
