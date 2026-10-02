@@ -15,6 +15,8 @@ export default async function Handler(props: {
   const extraInfo = <>
     <p className="text-xs">By signing in, you agree to the</p>
     <p className="text-xs"><StyledLink href="https://www.iubenda.com/privacy-policy/19290387/cookie-policy">Terms of Service</StyledLink> and <StyledLink href="https://www.iubenda.com/privacy-policy/19290387">Privacy Policy</StyledLink></p>
+    {/* AGPL-3.0 section 13: whoever uses this over a network is offered the source. */}
+    <p className="text-xs"><StyledLink href="https://github.com/Gelhaus-Solutions/hexclave">Source code</StyledLink></p>
     {process.env.NODE_ENV === "development" ?
       <div className="relative">
         <div className="bg-red-500 text-white p-2 rounded-md m-2 animate-bounce [animation-duration:2s]">
