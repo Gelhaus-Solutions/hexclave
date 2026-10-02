@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe } from "@stripe/stripe-js/pure";
 import { useMemo, useState } from "react";
 import { useStackApp } from "@hexclave/next";
 import { getPublicEnvVar } from "@/lib/env";

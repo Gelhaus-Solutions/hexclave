@@ -10,7 +10,7 @@ import {
   useStripe,
 } from "@stripe/react-stripe-js";
 import { Result } from "@hexclave/shared/dist/utils/results";
-import { StripePaymentElementOptions } from "@stripe/stripe-js";
+import type { StripePaymentElementOptions } from "@stripe/stripe-js";
 import { FlaskIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 

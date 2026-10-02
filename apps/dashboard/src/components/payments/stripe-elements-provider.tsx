@@ -2,7 +2,7 @@
 import { getPublicEnvVar } from "@/lib/env";
 import { throwErr } from "@hexclave/shared/dist/utils/errors";
 import { Elements } from "@stripe/react-stripe-js";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe } from "@stripe/stripe-js/pure";
 import { useTheme } from "@/lib/theme";
 import { useMemo } from "react";
 import { appearanceVariablesForTheme } from "./stripe-theme-variables";

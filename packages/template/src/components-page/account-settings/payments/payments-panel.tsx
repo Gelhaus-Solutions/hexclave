@@ -4,7 +4,7 @@ import { KnownErrors } from "@hexclave/shared";
 import { runAsynchronously } from "@hexclave/shared/dist/utils/promises";
 import { ActionDialog, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, toast, Typography } from "@hexclave/ui";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe } from "@stripe/stripe-js/pure";
 import { useMemo, useState } from "react";
 import { useStackApp } from "../../..";
 import { envVars } from "../../../generated/env";

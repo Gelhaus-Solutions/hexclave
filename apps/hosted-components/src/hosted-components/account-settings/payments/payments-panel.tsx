@@ -2,7 +2,7 @@ import { ActionDialog, Button, Skeleton, Select, SelectContent, SelectItem, Sele
 import { KnownErrors } from "@hexclave/shared";
 import { runAsynchronously } from "@hexclave/shared/dist/utils/promises";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe } from "@stripe/stripe-js/pure";
 import { useMemo, useState } from "react";
 import { useStackApp } from "@hexclave/react";
 import { Section } from "../section";

@@ -7,7 +7,7 @@ import { getPublicEnvVar } from "@/lib/env";
 import { runAsynchronously } from "@hexclave/shared/dist/utils/promises";
 import { getApiBaseUrl } from "../get-api-base-url";
 import { CheckCircleIcon, SpinnerGapIcon, XCircleIcon } from "@phosphor-icons/react";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe } from "@stripe/stripe-js/pure";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
