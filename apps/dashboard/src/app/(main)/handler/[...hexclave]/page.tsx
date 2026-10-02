@@ -13,8 +13,9 @@ export default async function Handler(props: {
   }
 
   const extraInfo = <>
-    <p className="text-xs">By signing in, you agree to the</p>
-    <p className="text-xs"><StyledLink href="https://www.iubenda.com/privacy-policy/19290387/cookie-policy">Terms of Service</StyledLink> and <StyledLink href="https://www.iubenda.com/privacy-policy/19290387">Privacy Policy</StyledLink></p>
+    {/* Gelhaus Solutions runs this instance, so its terms, privacy policy and imprint apply, not upstream's. */}
+    <p className="text-xs">By signing in, you agree to the <StyledLink href="https://gplatform.org/terms">Terms of Service</StyledLink>.</p>
+    <p className="text-xs"><StyledLink href="https://gplatform.org/datenschutz">Privacy Policy</StyledLink> · <StyledLink href="https://gplatform.org/impressum">Imprint</StyledLink></p>
     {/* AGPL-3.0 section 13: whoever uses this over a network is offered the source. */}
     <p className="text-xs"><StyledLink href="https://github.com/Gelhaus-Solutions/hexclave">Source code</StyledLink></p>
     {process.env.NODE_ENV === "development" ?

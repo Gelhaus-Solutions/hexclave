@@ -27,9 +27,9 @@ export default function Footer () {
         <div className="flex gap-4 md:flex-1 md:justify-end flex-wrap">
           {[
             { href: "https://hexclave.com", label: "Home" },
-            { href: "https://www.iubenda.com/privacy-policy/19290387", label: "Privacy policy" },
-            { href: "https://www.iubenda.com/privacy-policy/19290387/cookie-policy", label: "Cookie policy" },
-            { href: "https://www.iubenda.com/terms-and-conditions/19290387", label: "Terms & conditions" },
+            { href: "https://gplatform.org/datenschutz", label: "Privacy policy" },
+            { href: "https://gplatform.org/terms", label: "Terms & conditions" },
+            { href: "https://gplatform.org/impressum", label: "Imprint" },
           ].map(({ href, label }) => (
             <Link key={label} href={href}>
               <Typography variant="secondary" type='label'>{label}</Typography>
