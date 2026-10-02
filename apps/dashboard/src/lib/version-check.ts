@@ -51,6 +51,12 @@ export function checkVersion(
     errorPrefix = "Version check failed"
   } = options;
 
+  // The version-check endpoint (api.hexclave.com) is operated by a third party, not by this
+  // deployment. The check is therefore off unless NEXT_PUBLIC_VERSION_CHECK_ENABLED=true.
+  if (getPublicEnvVar('NEXT_PUBLIC_VERSION_CHECK_ENABLED') !== "true") {
+    return () => {};
+  }
+
   // Skip check for managed hosting
   if (typeof window !== "undefined" && window.location.origin === "https://app.hexclave.com") {
     return () => {}; // Return cleanup function
