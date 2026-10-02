@@ -5,6 +5,24 @@ import { Button, Spinner, Typography, cn } from "~/components/ui";
 export const authFooterClassName = "mt-6 border-t border-black/[0.06] pt-5 text-center text-sm dark:border-white/[0.10]";
 export const authFooterLinkClassName = "font-medium text-foreground/90 underline-offset-4 transition-colors hover:text-foreground hover:underline";
 
+const HEXCLAVE_SOURCE_CODE_URL = "https://github.com/Gelhaus-Solutions/hexclave";
+
+// AGPL-3.0 section 13: users interacting with this service over a network are offered the source.
+export function HostedSourceCodeLink() {
+  return (
+    <p className="relative z-10 mt-4 text-center text-xs text-muted-foreground">
+      <a
+        href={HEXCLAVE_SOURCE_CODE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={authFooterLinkClassName}
+      >
+        Source code
+      </a>
+    </p>
+  );
+}
+
 export function HostedAuthShell(props: {
   children: React.ReactNode,
   fullPage?: boolean,
@@ -28,9 +46,10 @@ export function HostedAuthShell(props: {
   return (
     <div
       data-hexclave-handler-page
-      className="stack-scope relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-background p-4 sm:p-6"
+      className="stack-scope relative flex min-h-screen w-full flex-col items-center justify-center overflow-hidden bg-background p-4 sm:p-6"
     >
       {content}
+      <HostedSourceCodeLink />
     </div>
   );
 }
