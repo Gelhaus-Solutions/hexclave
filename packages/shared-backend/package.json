@@ -1,6 +1,7 @@
 {
   "name": "@hexclave/shared-backend",
   "version": "1.0.100",
+  "license": "AGPL-3.0-only",
   "repository": "https://github.com/hexclave/hexclave",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
