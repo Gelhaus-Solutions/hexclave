@@ -13,7 +13,8 @@ import {
   Skeleton,
   cn,
 } from "@/components/ui";
-import { SignInIcon, SignOutIcon, SunIcon, UserCircleIcon, UserPlusIcon } from "@phosphor-icons/react";
+import { recordingConfigured, reopenReplayChoice } from "@/lib/replay-consent";
+import { SignInIcon, SignOutIcon, SunIcon, UserCircleIcon, UserPlusIcon, VideoCameraIcon } from "@phosphor-icons/react";
 import { useStackApp, useUser } from "@hexclave/next";
 import { Suspense } from "react";
 
@@ -166,6 +167,14 @@ function DashboardUserButtonInner(props: DashboardUserButtonProps) {
         {user && props.extraItems?.map((item, index) => (
           <DashboardMenuItem key={index} text={item.text} onClick={item.onClick} icon={item.icon} />
         ))}
+        {/* Where a yes or no to session recording is changed (see ReplayConsent). */}
+        {recordingConfigured() && (
+          <DashboardMenuItem
+            text="Session recording"
+            onClick={reopenReplayChoice}
+            icon={<VideoCameraIcon {...iconProps} />}
+          />
+        )}
         {props.colorModeToggle && (
           <DashboardMenuItem
             text="Toggle theme"

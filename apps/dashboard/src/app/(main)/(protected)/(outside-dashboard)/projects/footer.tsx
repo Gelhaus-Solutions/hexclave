@@ -1,4 +1,5 @@
 import { Link } from "@/components/link";
+import { ReplayChoiceLink } from "@/components/replay-consent";
 import { Separator, Typography } from "@/components/ui";
 import { FaDiscord, FaGithub, FaLinkedin } from "react-icons/fa";
 
@@ -35,6 +36,9 @@ export default function Footer () {
               <Typography variant="secondary" type='label'>{label}</Typography>
             </Link>
           ))}
+          <ReplayChoiceLink>
+            <Typography variant="secondary" type='label'>Session recording</Typography>
+          </ReplayChoiceLink>
         </div>
       </div>
     </footer>

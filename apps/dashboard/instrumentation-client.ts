@@ -3,6 +3,7 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import { getPublicEnvVar } from "@/lib/env";
+import { readReplayChoice, startReplay } from "@/lib/replay-consent";
 import * as Sentry from "@sentry/nextjs";
 import { getBrowserCompatibilityReport } from "@hexclave/shared/dist/utils/browser-compat";
 import { sentryBaseConfig } from "@hexclave/shared/dist/utils/sentry";
@@ -11,20 +12,10 @@ import posthog from "posthog-js";
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
 
-const postHogKey = getPublicEnvVar('NEXT_PUBLIC_POSTHOG_KEY') ?? "phc_vIUFi0HzHo7oV26OsaZbUASqxvs8qOmap1UBYAutU4k";
-if (postHogKey.length > 5) {
-  posthog.init(postHogKey, {
-    session_recording: {
-      maskAllInputs: false,
-      maskInputOptions: {
-        password: true,
-      },
-    },
-    defaults: '2025-11-30',
-    api_host: "/consume",
-    ui_host: "https://eu.i.posthog.com",
-  });
-}
+// PostHog records sessions, so it starts only with a key of our own and only
+// for a visitor who allowed recording: startReplay() below initialises it.
+// Upstream fell back to Stack Auth's own project key here.
+const postHogKey = getPublicEnvVar('NEXT_PUBLIC_POSTHOG_KEY');
 
 
 Sentry.init({
@@ -34,19 +25,15 @@ Sentry.init({
 
   enabled: process.env.NODE_ENV !== "development" && !process.env.CI,
 
-  // You can remove this option if you're not planning to use the Sentry Session Replay feature:
-  integrations: [
-    Sentry.replayIntegration({
-      // Additional Replay configuration goes in here, for example:
-      maskAllText: false,
-      maskAllInputs: false,
-      blockAllMedia: false,
-    }),
+  // No replay here: startReplay() below adds it, and only for a visitor who
+  // allowed recording (lib/replay-consent.ts). The session sample rates in
+  // sentryBaseConfig apply once it is added.
+  integrations: postHogKey !== undefined && postHogKey.length > 5 ? [
     posthog.sentryIntegration({
       organization: "stackframe-pw",
       projectId: 4507084192219136,
     }),
-  ],
+  ] : [],
 
   // Add exception metadata to the event
   beforeSend(event, hint) {
@@ -71,3 +58,7 @@ Sentry.init({
     return event;
   },
 });
+
+// A yes given on an earlier page or visit. A first-time visitor is asked by
+// <ReplayConsent> in the root layout, and nothing is recorded until they answer.
+if (readReplayChoice() === "granted") startReplay();

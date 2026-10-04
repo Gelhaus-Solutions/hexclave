@@ -1,6 +1,7 @@
 "use client";
 
 import { DevErrorNotifier } from "@/components/dev-error-notifier";
+import { ReplayConsent } from "@/components/replay-consent";
 import { RouterProvider } from "@/components/router";
 import { SiteLoadingIndicatorDisplay } from "@/components/site-loading-indicator";
 import { Toaster, TooltipProvider } from "@/components/ui";
@@ -212,6 +213,7 @@ export function LayoutClient(props: {
       <DevErrorNotifier />
       <Toaster />
       <SiteLoadingIndicatorDisplay />
+      <ReplayConsent />
     </>
   );
 }
