@@ -1,6 +1,6 @@
 'use client';
 
-import { runAsynchronouslyWithAlert } from "@hexclave/shared/dist/utils/promises";
+import { runAsynchronously } from "@hexclave/shared/dist/utils/promises";
 import { Skeleton, Typography } from '@hexclave/ui';
 import { Contact, ShieldCheck, Bell, Monitor, Key, Settings, CirclePlus, CreditCard } from 'lucide-react';
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -112,7 +112,11 @@ export function AccountSettings(props: {
       return;
     }
     let cancelled = false;
-    runAsynchronouslyWithAlert(async () => {
+    // Only decides whether to show the Payments tab, so a failure reports the
+    // error and leaves the tab hidden rather than alerting: a backend without
+    // a payments ledger, or a transient error, would otherwise pop a blocking
+    // dialog on every visit to the page.
+    runAsynchronously(async () => {
       const currentUser = userRef.current;
       if (!currentUser || currentUser.id !== userId) {
         return;
