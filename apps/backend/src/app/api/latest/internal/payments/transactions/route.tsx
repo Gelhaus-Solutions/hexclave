@@ -1,4 +1,4 @@
-import { fetchBulldozerServerJson } from "@/lib/bulldozer-server-client";
+import { fetchBulldozerServerJson, isBulldozerServerDisabled } from "@/lib/bulldozer-server-client";
 import { createSmartRouteHandler } from "@/route-handlers/smart-route-handler";
 import { TRANSACTION_TYPES, transactionSchema, type Transaction } from "@hexclave/shared/dist/interface/crud/transactions";
 import { adaptSchema, adminAuthTypeSchema, yupArray, yupNumber, yupObject, yupString } from "@hexclave/shared/dist/schema-fields";
@@ -30,6 +30,19 @@ export const GET = createSmartRouteHandler({
     }).defined(),
   }),
   handler: async ({ auth, query }) => {
+    // Without a ledger there are no transactions to list; answer empty like
+    // the customer reads in ./lib/payments/customer-data rather than 500 on
+    // the dashboard's payments pages.
+    if (isBulldozerServerDisabled()) {
+      return {
+        statusCode: 200,
+        bodyType: "json",
+        body: {
+          transactions: [],
+          next_cursor: null,
+        },
+      };
+    }
     const rawLimit = query.limit ?? "50";
     const parsedLimit = Number.parseInt(rawLimit, 10);
     const limit = Math.max(1, Math.min(200, Number.isFinite(parsedLimit) ? parsedLimit : 50));

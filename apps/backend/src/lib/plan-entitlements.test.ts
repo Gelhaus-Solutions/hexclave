@@ -258,4 +258,15 @@ describe("arePlanLimitsEnforced", () => {
       expect(arePlanLimitsEnforced()).toBe(true);
     }
   });
+
+  it("returns false on a deployment without a bulldozer server, whatever the limits flag says", () => {
+    // The limits are entitlements in the payments ledger; with none, every
+    // capacity would read as 0 and refuse sign-ups, invites and events.
+    vi.stubEnv("HEXCLAVE_DISABLE_PLAN_LIMITS", "false");
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_URL", "");
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "false");
+    expect(arePlanLimitsEnforced()).toBe(true);
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "true");
+    expect(arePlanLimitsEnforced()).toBe(false);
+  });
 });

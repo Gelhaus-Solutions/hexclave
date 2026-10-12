@@ -3,9 +3,14 @@
  *
  * Reads from the Phase 3 output tables (OwnedProducts, ItemQuantities)
  * and returns the current state for a customer.
+ *
+ * On a deployment that declares it runs no bulldozer server, each read
+ * answers empty: such a deployment does not use payments, so no customer owns
+ * anything, and a 500 here would surface in every client that merely asks
+ * (see `isBulldozerServerDisabled`).
  */
 
-import { bulldozerCustomerPath, fetchBulldozerServerJson } from "@/lib/bulldozer-server-client";
+import { bulldozerCustomerPath, fetchBulldozerServerJson, isBulldozerServerDisabled } from "@/lib/bulldozer-server-client";
 import type { PrismaClientTransaction } from "@/prisma-client";
 import type { CustomerType, OwnedProductsRow, SubscriptionRow } from "./schema/types";
 
@@ -21,6 +26,7 @@ export async function getOwnedProductsForCustomer(options: {
   customerType: CustomerType,
   customerId: string,
 }): Promise<OwnedProductsRow["ownedProducts"]> {
+  if (isBulldozerServerDisabled()) return {};
   const response = await fetchBulldozerServerJson<{ ownedProducts: OwnedProductsRow["ownedProducts"] }>({
     method: "GET",
     path: bulldozerCustomerPath({
@@ -44,6 +50,7 @@ export async function getItemQuantitiesForCustomer(options: {
   customerType: CustomerType,
   customerId: string,
 }): Promise<Record<string, number>> {
+  if (isBulldozerServerDisabled()) return {};
   const response = await fetchBulldozerServerJson<{ itemQuantities: Record<string, number> }>({
     method: "GET",
     path: bulldozerCustomerPath({
@@ -89,6 +96,7 @@ export async function getSubscriptionMapForCustomer(options: {
   customerType: CustomerType,
   customerId: string,
 }): Promise<Record<string, SubscriptionRow>> {
+  if (isBulldozerServerDisabled()) return {};
   const response = await fetchBulldozerServerJson<{ subscriptions: Record<string, SubscriptionRow> }>({
     method: "GET",
     path: bulldozerCustomerPath({

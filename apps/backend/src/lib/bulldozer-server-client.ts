@@ -1,4 +1,4 @@
-import { getEnvVariable } from "@hexclave/shared/dist/utils/env";
+import { getEnvBoolean, getEnvVariable } from "@hexclave/shared/dist/utils/env";
 import { captureError, HexclaveAssertionError } from "@hexclave/shared/dist/utils/errors";
 import { urlString } from "@hexclave/shared/dist/utils/urls";
 import type { ManualTransactionRow } from "@/lib/payments/schema/types";
@@ -48,6 +48,32 @@ export function isRetriableBulldozerFetchError(error: unknown): boolean {
   return visit(error) && foundSafeCode;
 }
 
+/**
+ * Whether this deployment runs without a bulldozer server, declared with
+ * `HEXCLAVE_BULLDOZER_SERVER_DISABLED=true`.
+ *
+ * Bulldozer is the payments ledger behind every product, item and subscription
+ * read, but the self-host server image does not ship it. Without this flag such
+ * a deployment still targets the localhost default, so every customer read
+ * retries a refused connection for ~4s and then 500s; the SDK's account
+ * settings page makes one on each visit to decide whether to show its Payments
+ * tab. A deployment that does not use payments declares the ledger absent
+ * instead: customer reads answer empty (./payments/customer-data), Hexclave's
+ * own plan limits are off because they are entitlements stored in the ledger
+ * (./plan-entitlements), and anything else that reaches the ledger, every
+ * dual-write included, fails at once in `fetchBulldozerServerJson`. A write
+ * that commits to Postgres before its ledger mirror has still committed, as in
+ * a bulldozer outage; the Postgres-to-bulldozer backfill picks it up if a
+ * ledger is ever added.
+ */
+export function isBulldozerServerDisabled(): boolean {
+  const disabled = getEnvBoolean("HEXCLAVE_BULLDOZER_SERVER_DISABLED");
+  if (disabled && getEnvVariable("HEXCLAVE_BULLDOZER_SERVER_URL", "") !== "") {
+    throw new HexclaveAssertionError("HEXCLAVE_BULLDOZER_SERVER_DISABLED is true but HEXCLAVE_BULLDOZER_SERVER_URL is set; a deployment either runs bulldozer or does not, so unset one of them.");
+  }
+  return disabled;
+}
+
 function getBulldozerServerBaseUrl(): string {
   const configuredUrl = getEnvVariable("HEXCLAVE_BULLDOZER_SERVER_URL", "");
   if (configuredUrl) {
@@ -70,6 +96,12 @@ export async function fetchBulldozerServerJson<T>(options: {
   path: string,
   body?: unknown,
 }): Promise<T> {
+  if (isBulldozerServerDisabled()) {
+    throw new HexclaveAssertionError("This deployment runs without a bulldozer server (HEXCLAVE_BULLDOZER_SERVER_DISABLED=true), so it has no payments ledger to serve this request", {
+      method: options.method,
+      path: options.path,
+    });
+  }
   let attempt = 0;
   let firstRetryError: unknown;
   const response = await (async (): Promise<Response> => {

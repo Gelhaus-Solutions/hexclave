@@ -1,4 +1,5 @@
 import { recordExternalDbSyncDeletion, recordExternalDbSyncTeamInvitationDeletionsForTeam, recordExternalDbSyncTeamMemberDeletionsForTeam, recordExternalDbSyncTeamPermissionDeletionsForTeam, withExternalDbSyncUpdate } from "@/lib/external-db-sync";
+import { isBulldozerServerDisabled } from "@/lib/bulldozer-server-client";
 import { bulldozerWriteSubscription } from "@/lib/payments/bulldozer-dual-write";
 import { createFreePlanSubscriptionRow } from "@/lib/payments/ensure-free-plan";
 import { ensureTeamExists, ensureTeamMembershipExists, ensureUserExists, ensureUserTeamPermissionExists } from "@/lib/request-checks";
@@ -138,7 +139,9 @@ export const teamsCrudHandlers = createLazyProxy(() => createCrudHandlers(teamsC
       return { db, freePlanSubscription };
     });
 
-    if (freePlanSubscription != null) {
+    // A deployment without a ledger has nowhere to mirror the row to; the
+    // write would only fail and report an expected state on every team.
+    if (freePlanSubscription != null && !isBulldozerServerDisabled()) {
       try {
         await bulldozerWriteSubscription(freePlanSubscription);
       } catch (error) {

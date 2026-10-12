@@ -1,3 +1,4 @@
+import { isBulldozerServerDisabled } from "@/lib/bulldozer-server-client";
 import { isActiveSubscription } from "@/lib/payments";
 import { getItemQuantityForCustomer, getSubscriptionMapForCustomer } from "@/lib/payments/customer-data";
 import { getPrismaClientForTenancy, globalPrismaClient } from "@/prisma-client";
@@ -25,6 +26,12 @@ import { DEFAULT_BRANCH_ID, getSoleTenancyFromProjectBranch, type Tenancy } from
  * are unaffected by this flag.
  */
 export function arePlanLimitsEnforced(): boolean {
+  // The limits are entitlements stored in the payments ledger. A deployment
+  // that declares it runs no ledger has nothing to enforce them against, and
+  // its empty reads would otherwise resolve every capacity to 0 and refuse
+  // sign-ups, invites and events. The dashboard mirrors this in
+  // `getArePlanLimitsEnforced`.
+  if (isBulldozerServerDisabled()) return false;
   return getEnvVariable("STACK_DISABLE_PLAN_LIMITS", "false") !== "true";
 }
 
@@ -247,7 +254,9 @@ export async function getTeamWideAuthUsersCapacityForProjectTenancy(
  *     `ownerTeamId` on every deployment, self-hosted included, so a self-hosted
  *     project WILL resolve to "free" if bulldozer is reachable. Today that is
  *     masked only because the self-host stack ships no bulldozer, which makes
- *     the read fail and land in the catch below. Use the flag above.
+ *     the read fail and land in the catch below. Use the flag above, or
+ *     declare the ledger absent with `HEXCLAVE_BULLDOZER_SERVER_DISABLED`,
+ *     which turns the limits off as well.
  *   - The plan could not be read. Bulldozer (the subscription store) is not a
  *     hard dependency of the flows that gate on plans, so an outage must not
  *     start refusing requests. Mirrors how `getTeamWideItemCapacity` degrades

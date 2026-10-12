@@ -1,6 +1,6 @@
 "use server";
 import { isRemoteDevelopmentEnvironmentEnabled } from "@/lib/remote-development-environment/env";
-import { getEnvVariable } from "@hexclave/shared/dist/utils/env";
+import { getEnvBoolean, getEnvVariable } from "@hexclave/shared/dist/utils/env";
 import { hexclaveAppInternalsSymbol } from "@hexclave/next";
 
 async function getServerApp() {
@@ -52,5 +52,8 @@ export async function inviteUser(teamId: string, email: string, origin: string) 
 }
 
 export async function getArePlanLimitsEnforced(): Promise<boolean> {
+  // Mirrors the backend's `arePlanLimitsEnforced`: without a payments ledger
+  // the seat count reads 0, so enforcing it would block every invite.
+  if (getEnvBoolean("HEXCLAVE_BULLDOZER_SERVER_DISABLED")) return false;
   return getEnvVariable("STACK_DISABLE_PLAN_LIMITS", "false") !== "true";
 }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEnvVariable } from "@hexclave/shared/dist/utils/env";
 import { globalVar } from "@hexclave/shared/dist/utils/globals";
-import { bulldozerCustomerPath, fetchBulldozerServerJson, isRetriableBulldozerFetchError } from "./bulldozer-server-client";
+import { bulldozerCustomerPath, fetchBulldozerServerJson, isBulldozerServerDisabled, isRetriableBulldozerFetchError } from "./bulldozer-server-client";
 
 function errorWithCode(code: string): Error & { code: string } {
   return Object.assign(new Error(code), { code });
@@ -235,6 +235,45 @@ describe("fetchBulldozerServerJson", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(fetchBulldozerServerJson({ method: "POST", path: "/update-quantity" })).rejects.toMatchObject({ code: "ECONNRESET" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a deployment without a bulldozer server", () => {
+  it("is not declared by default, and is once the flag is true", () => {
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "");
+    expect(isBulldozerServerDisabled()).toBe(false);
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "false");
+    expect(isBulldozerServerDisabled()).toBe(false);
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "true");
+    expect(isBulldozerServerDisabled()).toBe(true);
+  });
+
+  it("refuses a flag value that is neither true nor false", () => {
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "yes");
+    expect(() => isBulldozerServerDisabled()).toThrow('must be either "true" or "false"');
+  });
+
+  it("refuses to be both disabled and pointed at a server", () => {
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "true");
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_URL", "http://bulldozer.internal");
+    expect(() => isBulldozerServerDisabled()).toThrow("HEXCLAVE_BULLDOZER_SERVER_URL is set");
+  });
+
+  it("fails every ledger request at once, without a fetch or a retry", async () => {
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "true");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchBulldozerServerJson({ method: "GET", path: "/owned-products" }))
+      .rejects.toThrow("runs without a bulldozer server");
+    await expect(fetchBulldozerServerJson({ method: "POST", path: "/update-quantity", body: { quantity: 1 } }))
+      .rejects.toThrow("runs without a bulldozer server");
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+
+    // The same requests reach the server once the flag is off.
+    vi.stubEnv("HEXCLAVE_BULLDOZER_SERVER_DISABLED", "false");
+    await expect(fetchBulldozerServerJson({ method: "GET", path: "/owned-products" })).resolves.toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
