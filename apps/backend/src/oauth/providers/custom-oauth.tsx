@@ -1,4 +1,4 @@
-import { OAuthUserInfo, validateUserInfo } from "../utils";
+import { OAuthUserInfo, parseEmailVerifiedClaim, validateUserInfo } from "../utils";
 import { OAuthBaseProvider, TokenSet } from "./base";
 
 /**
@@ -47,7 +47,9 @@ export class CustomOAuthProvider extends OAuthBaseProvider {
       email: rawUserInfo.email ?? null,
       profileImageUrl: rawUserInfo.picture ?? rawUserInfo.avatar_url ?? null,
       // Trust the admin's "treat emails as verified" toggle when the provider omits the claim.
-      emailVerified: !!(rawUserInfo.email_verified ?? rawUserInfo.verified_email) || this.trustEmailVerified,
+      // The claim goes through parseEmailVerifiedClaim, as in CustomOidcProvider, so a string
+      // "false" stays unverified instead of being coerced to true by `!!`.
+      emailVerified: parseEmailVerifiedClaim(rawUserInfo.email_verified ?? rawUserInfo.verified_email) || this.trustEmailVerified,
     });
   }
 

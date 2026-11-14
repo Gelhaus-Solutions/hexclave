@@ -5,14 +5,14 @@
 // OTHERWISE THINGS WILL GO BOOM!!
 
 import * as yup from "yup";
-import { ALL_APPS } from "../apps/apps-config";
+import { ALL_APPS, getParentAppId } from "../apps/apps-config";
 import { DEFAULT_EMAIL_TEMPLATES, DEFAULT_EMAIL_THEMES, DEFAULT_EMAIL_THEME_ID } from "../helpers/emails";
 import * as schemaFields from "../schema-fields";
 import { productSchema, userSpecifiedIdSchema, yupBoolean, yupDate, yupMixed, yupNever, yupNumber, yupObject, yupRecord, yupString, yupTuple, yupUnion } from "../schema-fields";
 import { SUPPORTED_CURRENCIES } from "../utils/currency-constants";
 import { HexclaveAssertionError } from "../utils/errors";
 import { allProviders, allProviderTypes } from "../utils/oauth";
-import { DeepFilterUndefined, DeepMerge, DeepRequiredOrUndefined, filterUndefined, get, getOrUndefined, has, isObjectLike, mapValues, set, typedAssign, typedEntries, typedFromEntries } from "../utils/objects";
+import { DeepFilterUndefined, DeepMerge, DeepRequiredOrUndefined, deepPlainClone, filterUndefined, get, getOrUndefined, has, isObjectLike, mapValues, set, typedAssign, typedEntries, typedFromEntries } from "../utils/objects";
 import { Result } from "../utils/results";
 import { stringCompare } from "../utils/strings";
 import { CollapseObjectUnion, Expand, IntersectAll, IsUnion, typeAssert, typeAssertExtends, typeAssertIs } from "../utils/types";
@@ -92,9 +92,13 @@ const branchApiKeysSchema = yupObject({
 const appIds = Object.keys(ALL_APPS) as (keyof typeof ALL_APPS)[];
 const branchAppsSchema = yupObject({
   installed: yupRecord(
-    // App config is persisted independently of backend releases. Retain app IDs
-    // introduced by newer releases so an older backend can still render the
-    // config; getIncompleteConfigWarnings reports IDs it does not recognize.
+    // Each app is configured independently, including apps with parentAppId.
+    // Some dashboard versions interpret sub-apps through their parent, but the
+    // backend must retain the individual value for clients with richer behavior.
+    //
+    // App config is also persisted independently of backend releases. Retain
+    // app IDs introduced by newer releases so an older backend can still render
+    // the config; getIncompleteConfigWarnings reports IDs it does not recognize.
     yupString(),
     yupObject({
       enabled: yupBoolean(),
@@ -191,6 +195,28 @@ import.meta.vitest?.test("branchAuthSchema rejects a non-positive guest TTL", as
   await expect(branchAuthSchema.validate({
     anonymous: { allowSignIn: true, expireGuestsAfterDays: 0 },
   }, { abortEarly: false })).rejects.toThrow();
+});
+
+const clerkIntegrationSchema = yupObject({
+  issuer: schemaFields.urlSchema.optional(),
+  authorizedParties: yupString().optional(),
+});
+
+const betterAuthIntegrationSchema = yupObject({
+  issuer: schemaFields.urlSchema.optional(),
+  audience: yupString().optional(),
+  // The JWKS is fetched with safeOAuthFetch, which only speaks HTTP(S); any other scheme that is a
+  // syntactically valid URL (eg. ftp://) would pass urlSchema and then fail every token exchange.
+  jwksUrl: schemaFields.urlSchema.test({
+    name: 'http-or-https',
+    message: (params) => `${params.path} must use HTTP or HTTPS`,
+    test: (value) => value == null || (URL.canParse(value) && ['http:', 'https:'].includes(new URL(value).protocol)),
+  }).optional(),
+});
+
+const workosIntegrationSchema = yupObject({
+  clientId: yupString().optional(),
+  issuer: schemaFields.urlSchema.optional(),
 });
 
 export const branchPaymentsSchema = yupObject({
@@ -334,7 +360,7 @@ import.meta.vitest?.test("branchPaymentsSchema lets productLineId schema reject 
         prices: {},
       },
     },
-  }, { abortEarly: false })).rejects.toThrowErrorMatchingInlineSnapshot(`[ValidationError: productLineId must contain only letters, numbers, underscores, and hyphens, and not start with a hyphen]`);
+  }, { abortEarly: false })).rejects.toThrowErrorMatchingInlineSnapshot(`[ValidationError: productLineId must contain only letters, numbers, underscores, and hyphens, and not start with a hyphen, and must not be one of __proto__, constructor, prototype]`);
 });
 
 const branchDomain = yupObject({});
@@ -375,6 +401,10 @@ export const branchConfigSchema = canNoLongerBeOverridden(projectConfigSchema, [
   }),
 
   payments: branchPaymentsSchema,
+
+  "clerk-integration": clerkIntegrationSchema,
+  "better-auth-integration": betterAuthIntegrationSchema,
+  "workos-integration": workosIntegrationSchema,
 
   dataVault: yupObject({
     stores: yupRecord(
@@ -727,6 +757,12 @@ export function migrateConfigOverride(type: "project" | "branch" | "environment"
   }
   // END
 
+  // BEGIN 2026-08-31: the Growth app was removed.
+  if (isBranchOrHigher) {
+    res = removeProperty(res, p => p[0] === "apps" && p[1] === "installed" && p[2] === "gtm");
+  }
+  // END
+
   // return the result
   return res;
 };
@@ -837,6 +873,34 @@ import.meta.vitest?.test("migrateConfigOverride renames deployments-alpha app in
     "apps.installed.deploy.enabled": false,
   })).toEqual({
     "apps.installed.deploy.enabled": false,
+  });
+});
+
+import.meta.vitest?.test("migrateConfigOverride removes Growth app installations", ({ expect }) => {
+  expect(migrateConfigOverride("branch", {
+    apps: {
+      installed: {
+        gtm: { enabled: true },
+        analytics: { enabled: true },
+      },
+    },
+  })).toEqual({
+    apps: {
+      installed: {
+        analytics: { enabled: true },
+      },
+    },
+  });
+  expect(migrateConfigOverride("branch", {
+    "apps.installed.gtm.enabled": true,
+    "apps.installed.analytics.enabled": true,
+  })).toEqual({
+    "apps.installed.analytics.enabled": true,
+  });
+  expect(migrateConfigOverride("project", {
+    "apps.installed.gtm.enabled": true,
+  })).toEqual({
+    "apps.installed.gtm.enabled": true,
   });
 });
 
@@ -1053,6 +1117,20 @@ const organizationConfigDefaults = {
       },
     }),
     signUpRulesDefaultAction: 'allow',
+  },
+
+  "clerk-integration": {
+    issuer: undefined,
+    authorizedParties: undefined,
+  },
+  "better-auth-integration": {
+    issuer: undefined,
+    audience: undefined,
+    jwksUrl: undefined,
+  },
+  "workos-integration": {
+    clientId: undefined,
+    issuer: undefined,
   },
 
   emails: {
@@ -1599,7 +1677,10 @@ export async function getConfigOverrideErrors<T extends yup.AnySchema>(schema: T
     }
     let restrictedSchema = getRestrictedSchema(key, subSchema);
     try {
-      await restrictedSchema.validate(value, {
+      // Validates a copy: yupRecord writes its cast children back into the record it validates, and with
+      // `strict: true` that record would be the caller's override itself (which may also be frozen and shared, e.g.
+      // by the backend's config rendering cache). This function must only check the override, never change it.
+      await restrictedSchema.validate(deepPlainClone(value), {
         strict: true,
         ...{
           // Although `path` is not part of the yup types, it is actually recognized and does the correct thing
@@ -1752,6 +1833,28 @@ import.meta.vitest?.test("unknown installed apps render with a config warning", 
   expect(await getIncompleteConfigWarnings(branchConfigSchema, config)).toEqual(Result.error(
     "Unknown installed app ID: \"future-app\". This config can still be rendered, but this version cannot validate or operate those apps.",
   ));
+});
+
+import.meta.vitest?.test("sub-apps can be enabled independently of their parent apps", async ({ expect }) => {
+  const subAppEntries: [keyof typeof ALL_APPS, keyof typeof ALL_APPS][] = [];
+  for (const appId of appIds) {
+    const parentAppId = getParentAppId(appId);
+    if (parentAppId != null) {
+      subAppEntries.push([appId, parentAppId]);
+    }
+  }
+  const config = {
+    apps: {
+      installed: Object.fromEntries(subAppEntries.flatMap(([appId, parentAppId]) => [
+        [parentAppId, { enabled: false }],
+        [appId, { enabled: true }],
+      ])),
+    },
+  };
+
+  expect(subAppEntries.length).toBeGreaterThan(0);
+  expect(await getConfigOverrideErrors(branchConfigSchema, config)).toEqual(Result.ok(null));
+  expect(await getIncompleteConfigWarnings(branchConfigSchema, config)).toEqual(Result.ok(null));
 });
 
 

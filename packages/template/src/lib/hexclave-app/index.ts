@@ -57,6 +57,16 @@ export type {
 } from "./workflows";
 
 export type {
+  AdminSessionReplay,
+  AdminSessionReplayChunk,
+  ListSessionReplayChunksOptions,
+  ListSessionReplayChunksResult,
+  ListSessionReplaysOptions,
+  ListSessionReplaysResult,
+  SessionReplayAllEventsResult
+} from "./session-replays";
+
+export type {
   ProjectConfig
 } from "./project-configs";
 
@@ -69,13 +79,17 @@ export type {
 } from "./internal-api-keys";
 
 export {
+  betterAuthTokenStore,
+  clerkTokenStore,
   hexclaveAppInternalsSymbol,
+  workosTokenStore,
 } from "./common";
 export {
   getPagePrompt,
 } from "./url-targets";
 export type {
   GetCurrentUserOptions,
+  ExternalTokenStore,
   /** @deprecated Use GetCurrentUserOptions instead */
   GetCurrentUserOptions as GetUserOptions,
   HandlerUrlOptions,
@@ -124,6 +138,7 @@ export type {
   AdminDeploymentDomainJson,
   AdminDeploymentEnvVarJson,
   AdminDeploymentJson,
+  AdminDeploymentServiceLogLineJson,
   AdminDeploymentServiceOutcomeJson,
   AdminProjectSecretJson,
   AdminDeploymentServiceJson,

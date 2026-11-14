@@ -17,6 +17,7 @@ it("allows guest sign-in on the internal project when enabled", async ({ expect 
         "client_metadata": null,
         "client_read_only_metadata": null,
         "display_name": null,
+        "external_auth_providers": [],
         "has_password": false,
         "id": "<stripped UUID>",
         "is_anonymous": true,

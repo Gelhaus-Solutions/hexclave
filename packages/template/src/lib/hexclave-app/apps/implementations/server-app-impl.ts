@@ -1,5 +1,7 @@
 import { HexclaveServerInterface, KnownErrors } from "@hexclave/shared";
 import type { AnalyticsQueryOptions, AnalyticsQueryResponse } from "@hexclave/shared/dist/interface/crud/analytics";
+import type { AdminGetSessionReplayChunkEventsResponse } from "@hexclave/shared/dist/interface/crud/session-replays";
+import type { AdminSessionReplay, AdminSessionReplayChunk, ListSessionReplayChunksOptions, ListSessionReplayChunksResult, ListSessionReplaysOptions, ListSessionReplaysResult, SessionReplayAllEventsResult } from "../../session-replays";
 import { ContactChannelsCrud } from "@hexclave/shared/dist/interface/crud/contact-channels";
 import { ItemCrud } from "@hexclave/shared/dist/interface/crud/items";
 import { NotificationPreferenceCrud } from "@hexclave/shared/dist/interface/crud/notification-preferences";
@@ -34,13 +36,13 @@ import { EmailDeliveryInfo, SendEmailOptions } from "../../email";
 import { NotificationCategory } from "../../notification-categories";
 import { scopePasskeyRegistrationToHostname } from "../../passkey-rp-id";
 import { AdminProjectPermissionDefinition, AdminTeamPermission, AdminTeamPermissionDefinition } from "../../permissions";
-import { EditableTeamMemberProfile, ReceivedTeamInvitation, SentTeamInvitation, ServerListTeamsOptions, ServerListUsersOptions, ServerTeam, ServerTeamCreateOptions, ServerTeamUpdateOptions, ServerTeamUser, Team, serverTeamCreateOptionsToCrud, serverTeamUpdateOptionsToCrud } from "../../teams";
+import { EditableTeamMemberProfile, ReceivedTeamInvitation, SentTeamInvitation, ServerListTeamsOptions, ServerListUsersOptions, ServerTeam, ServerTeamCreateOptions, ServerTeamUpdateOptions, ServerTeamUser, Team, TeamList, serverTeamCreateOptionsToCrud, serverTeamUpdateOptionsToCrud, teamListFromCrud } from "../../teams";
 import { ProjectCurrentServerUser, ServerOAuthProvider, ServerUser, ServerUserCreateOptions, ServerUserUpdateOptions, serverUserCreateOptionsToCrud, serverUserUpdateOptionsToCrud, withUserDestructureGuard } from "../../users";
 import { StackServerAppConstructorOptions } from "../interfaces/server-app";
 import { _HexclaveClientAppImplIncomplete } from "./client-app-impl";
 import { clientVersion, createCache, createCacheBySession, getDefaultExtraRequestHeaders, getDefaultProjectId, getDefaultPublishableClientKey, getDefaultSecretServerKey, resolveApiUrls, resolveConstructorOptions } from "./common";
 
-import { useAsyncCache } from "./common"; // THIS_LINE_PLATFORM react-like
+import { useAsyncCache, useTeamInUserTeams } from "./common"; // THIS_LINE_PLATFORM react-like
 
 export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, ProjectId extends string> extends _HexclaveClientAppImplIncomplete<HasTokenStore, ProjectId> {
   declare protected _interface: HexclaveServerInterface;
@@ -103,10 +105,15 @@ export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, Pro
     }
   });
 
+  protected async _refreshServerTeams(options?: { userId?: string }) {
+    await this._serverTeamsCache.refreshWhere(([userId]) =>
+      options?.userId == null || userId === options.userId || userId === undefined);
+  }
+
   protected async _refreshTeamMembership(teamId: string, userId: string) {
     await Promise.all([
       this._serverTeamMemberProfilesCache.refresh([teamId]),
-      this._serverTeamsCache.refreshWhere(([u]) => u === userId || u === undefined),
+      this._refreshServerTeams({ userId }),
       this._serverUsersCache.refreshWhere((key) => key[8] === teamId),
     ]);
   }
@@ -718,33 +725,26 @@ export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, Pro
       // Unlike the app-level getTeam/useTeam (which fetch any team by id),
       // the user-scoped variants search the user's own team list on purpose:
       // they must return null for teams the user is not a member of, and some
-      // callers rely on that as a membership check.
+      // callers rely on that as a membership check. The unfiltered list is
+      // capped by the backend, so we filter it on the team ID (the `query`
+      // param exact-matches team IDs) rather than searching the full list.
       async getTeam(teamId: string) {
-        const teams = await this.listTeams();
+        const teams = await this.listTeams({ query: teamId });
         return teams.find((t) => t.id === teamId) ?? null;
       },
       // IF_PLATFORM react-like
       useTeam(teamId: string) {
-        const teams = this.useTeams();
-        return useMemo(() => {
-          return teams.find((t) => t.id === teamId) ?? null;
-        }, [teams, teamId]);
+        return useTeamInUserTeams((options) => this.useTeams(options), teamId);
       },
       // END_PLATFORM
-      async listTeams(options?: ServerListTeamsOptions): Promise<ServerTeam[] & { nextCursor: string | null }> {
+      async listTeams(options?: ServerListTeamsOptions): Promise<TeamList<ServerTeam>> {
         const result = Result.orThrow(await app._serverTeamsCache.getOrWait([crud.id, options?.orderBy, options?.desc, options?.cursor, options?.limit, options?.query] as const, "write-only"));
-        const teams: any = result.items.map((t) => app._serverTeamFromCrud(t));
-        teams.nextCursor = result.pagination?.next_cursor ?? null;
-        return teams as any;
+        return teamListFromCrud(result, (t) => app._serverTeamFromCrud(t));
       },
       // IF_PLATFORM react-like
-      useTeams(options?: ServerListTeamsOptions): ServerTeam[] & { nextCursor: string | null } {
+      useTeams(options?: ServerListTeamsOptions): TeamList<ServerTeam> {
         const result = useAsyncCache(app._serverTeamsCache, [crud.id, options?.orderBy, options?.desc, options?.cursor, options?.limit, options?.query] as const, "user.useTeams()");
-        return useMemo(() => {
-          const teams: any = result.items.map((t) => app._serverTeamFromCrud(t));
-          teams.nextCursor = result.pagination?.next_cursor ?? null;
-          return teams as any;
-        }, [result]);
+        return useMemo(() => teamListFromCrud(result, (t) => app._serverTeamFromCrud(t)), [result]);
       },
       // END_PLATFORM
       createTeam: async (data: Omit<ServerTeamCreateOptions, "creatorUserId">) => {
@@ -752,7 +752,7 @@ export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, Pro
           creatorUserId: crud.id,
           ...data,
         }));
-        await app._serverTeamsCache.refreshWhere(() => true);
+        await app._refreshServerTeams();
         await app._updateServerUser(crud.id, { selectedTeamId: team.id });
         return app._serverTeamFromCrud(team);
       },
@@ -1044,7 +1044,7 @@ export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, Pro
         await app._interface.updateServerTeam(crud.id, serverTeamUpdateOptionsToCrud(update));
         await Promise.all([
           app._serverTeamCache.refresh([crud.id]),
-          app._serverTeamsCache.refreshWhere(() => true),
+          app._refreshServerTeams(),
           app._serverUsersCache.refreshWhere(() => true),
         ]);
       },
@@ -1052,7 +1052,7 @@ export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, Pro
         await app._interface.deleteServerTeam(crud.id);
         await Promise.all([
           app._serverTeamCache.refresh([crud.id]),
-          app._serverTeamsCache.refreshWhere(() => true),
+          app._refreshServerTeams(),
           app._serverUsersCache.refreshWhere(() => true),
         ]);
       },
@@ -1551,25 +1551,19 @@ export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, Pro
   async createTeam(data: ServerTeamCreateOptions): Promise<ServerTeam> {
     const team = await this._interface.createServerTeam(serverTeamCreateOptionsToCrud(data));
     await this._serverTeamCache.refresh([team.id]);
-    await this._serverTeamsCache.refreshWhere(() => true);
+    await this._refreshServerTeams();
     return this._serverTeamFromCrud(team);
   }
 
-  async listTeams(options?: ServerListTeamsOptions): Promise<ServerTeam[] & { nextCursor: string | null }> {
+  async listTeams(options?: ServerListTeamsOptions): Promise<TeamList<ServerTeam>> {
     const crud = Result.orThrow(await this._serverTeamsCache.getOrWait([undefined, options?.orderBy, options?.desc, options?.cursor, options?.limit, options?.query] as const, "write-only"));
-    const teams: any = crud.items.map((t) => this._serverTeamFromCrud(t));
-    teams.nextCursor = crud.pagination?.next_cursor ?? null;
-    return teams as any;
+    return teamListFromCrud(crud, (t) => this._serverTeamFromCrud(t));
   }
 
   // IF_PLATFORM react-like
-  useTeams(options?: ServerListTeamsOptions): ServerTeam[] & { nextCursor: string | null } {
+  useTeams(options?: ServerListTeamsOptions): TeamList<ServerTeam> {
     const crud = useAsyncCache(this._serverTeamsCache, [undefined, options?.orderBy, options?.desc, options?.cursor, options?.limit, options?.query] as const, "serverApp.useTeams()");
-    return useMemo(() => {
-      const teams: any = crud.items.map((t) => this._serverTeamFromCrud(t));
-      teams.nextCursor = crud.pagination?.next_cursor ?? null;
-      return teams as any;
-    }, [crud]);
+    return useMemo(() => teamListFromCrud(crud, (t) => this._serverTeamFromCrud(t)), [crud]);
   }
   // END_PLATFORM
 
@@ -1675,6 +1669,104 @@ export class _HexclaveServerAppImplIncomplete<HasTokenStore extends boolean, Pro
 
   async queryAnalytics(options: AnalyticsQueryOptions): Promise<AnalyticsQueryResponse> {
     return await this._interface.queryAnalytics(options);
+  }
+
+  async listSessionReplays(options?: ListSessionReplaysOptions): Promise<ListSessionReplaysResult> {
+    const response = await this._interface.listSessionReplays({
+      cursor: options?.cursor,
+      limit: options?.limit,
+      user_ids: options?.userIds,
+      team_ids: options?.teamIds,
+      duration_ms_min: options?.durationMsMin,
+      duration_ms_max: options?.durationMsMax,
+      last_event_at_from_millis: options?.lastEventAtFromMillis,
+      last_event_at_to_millis: options?.lastEventAtToMillis,
+      click_count_min: options?.clickCountMin,
+    });
+
+    const items: AdminSessionReplay[] = response.items.map((r) => ({
+      id: r.id,
+      refreshTokenId: r.refresh_token_id,
+      projectUser: {
+        id: r.project_user.id,
+        displayName: r.project_user.display_name,
+        primaryEmail: r.project_user.primary_email,
+      },
+      startedAt: new Date(r.started_at_millis),
+      lastEventAt: new Date(r.last_event_at_millis),
+      chunkCount: r.chunk_count,
+      eventCount: r.event_count,
+    }));
+
+    return {
+      items,
+      nextCursor: response.pagination.next_cursor,
+    };
+  }
+
+  async getSessionReplay(sessionReplayId: string): Promise<AdminSessionReplay> {
+    const response = await this._interface.getSessionReplay(sessionReplayId);
+    return {
+      id: response.id,
+      refreshTokenId: response.refresh_token_id,
+      projectUser: {
+        id: response.project_user.id,
+        displayName: response.project_user.display_name,
+        primaryEmail: response.project_user.primary_email,
+      },
+      startedAt: new Date(response.started_at_millis),
+      lastEventAt: new Date(response.last_event_at_millis),
+      chunkCount: response.chunk_count,
+      eventCount: response.event_count,
+    };
+  }
+
+  async listSessionReplayChunks(sessionReplayId: string, options?: ListSessionReplayChunksOptions): Promise<ListSessionReplayChunksResult> {
+    const response = await this._interface.listSessionReplayChunks(sessionReplayId, {
+      cursor: options?.cursor,
+      limit: options?.limit,
+    });
+
+    const items: AdminSessionReplayChunk[] = response.items.map((c) => ({
+      id: c.id,
+      batchId: c.batch_id,
+      sessionReplaySegmentId: c.session_replay_segment_id,
+      browserSessionId: c.browser_session_id,
+      eventCount: c.event_count,
+      byteLength: c.byte_length,
+      firstEventAt: new Date(c.first_event_at_millis),
+      lastEventAt: new Date(c.last_event_at_millis),
+      createdAt: new Date(c.created_at_millis),
+    }));
+
+    return {
+      items,
+      nextCursor: response.pagination.next_cursor,
+    };
+  }
+
+  async getSessionReplayChunkEvents(sessionReplayId: string, chunkId: string): Promise<AdminGetSessionReplayChunkEventsResponse> {
+    return await this._interface.getSessionReplayChunkEvents(sessionReplayId, chunkId);
+  }
+
+  async getSessionReplayEvents(sessionReplayId: string, options?: { offset?: number, limit?: number }): Promise<SessionReplayAllEventsResult> {
+    const response = await this._interface.getSessionReplayEvents(sessionReplayId, options);
+    return {
+      chunks: response.chunks.map((c) => ({
+        id: c.id,
+        batchId: c.batch_id,
+        sessionReplaySegmentId: c.session_replay_segment_id,
+        eventCount: c.event_count,
+        byteLength: c.byte_length,
+        firstEventAt: new Date(c.first_event_at_millis),
+        lastEventAt: new Date(c.last_event_at_millis),
+        createdAt: new Date(c.created_at_millis),
+      })),
+      chunkEvents: response.chunk_events.map((ce) => ({
+        chunkId: ce.chunk_id,
+        events: ce.events,
+      })),
+    };
   }
 
   protected override async _refreshSession(session: InternalSession) {

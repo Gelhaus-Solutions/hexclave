@@ -8,6 +8,7 @@ import { AugmentedTreeMap, AugmentedTreeMultiMap } from "../piledriver/data-stru
 import { ConcatTreeList } from "../piledriver/data-structures/concat-tree-list.js";
 import { PiledriverGarbageCollectionResult } from "../piledriver/gc.js";
 import { isPiledriverHeapObjectSymbol, PiledriverDatabase, PiledriverDatabaseDebugSnapshot, PiledriverObject, piledriverObjectEquals } from "../piledriver/index.js";
+import { assertSavable } from "../piledriver/savable-values.js";
 
 // Code-unit comparison; localeCompare would persist trees whose order depends on the runtime locale.
 function compareStrings(a: string, b: string) {
@@ -583,6 +584,9 @@ class BulldozerDatabaseSnapshot {
     if (!(options.tableId in this.tablesState.tables)) throw new Error(`Table ${options.tableId} does not exist`);
     const setOrDeleteRow = this.tablesState.tables[options.tableId].table.setOrDeleteRow;
     if (!setOrDeleteRow) throw new Error("Table is not mutable");
+    // Reject unsavable rows before they enter any snapshot: with the buffered Piledriver wrapper, a
+    // row that only fails later, while saving, stays in memory and makes every later save fail too.
+    if (options.newRowData !== undefined) assertSavable(options.newRowData);
 
     const result = await this._applyTableMutation({
       operation: "setOrDeleteRow",
@@ -652,6 +656,8 @@ class BulldozerDatabaseSnapshot {
     for (const row of options.rows) {
       if (seenIdentifiers.has(row.rowIdentifier)) throw new Error(`Duplicate row identifier ${row.rowIdentifier} in batch for table ${options.tableId}`);
       seenIdentifiers.add(row.rowIdentifier);
+      // Same as setOrDeleteRow: reject unsavable rows before any snapshot contains them.
+      if (row.newRowData !== undefined) assertSavable(row.newRowData);
     }
 
     const result = await this._applyTableMutation({
@@ -889,13 +895,15 @@ function createTablesStateFromMigrations(migrations: readonly BulldozerDatabaseM
 
 export type BulldozerDatabase = {
   getDebugInfo(): any,
+  getPiledriverDatabase(): PiledriverDatabase,
   listTables(): BulldozerDatabaseTableDescriptor[],
   debugPiledriverSnapshot?(): Promise<PiledriverDatabaseDebugSnapshot>,
   debugLowLevelSnapshot?(): Promise<LowLevelDatabaseDebugSnapshot>,
   getSnapshot(): Promise<{ snapshot: BulldozerDatabaseSnapshot, seq: DatabaseSeq }>,
   withSnapshot(updateSnapshot: (snapshot: BulldozerDatabaseSnapshot) => Promise<BulldozerDatabaseSnapshot | BulldozerSnapshotMutationResult>): Promise<{ snapshot: BulldozerDatabaseSnapshot, seq: DatabaseSeq }>,
-  withSnapshotReplicated(updateSnapshot: (snapshot: BulldozerDatabaseSnapshot) => Promise<BulldozerDatabaseSnapshot | BulldozerSnapshotMutationResult>): Promise<{ snapshot: BulldozerDatabaseSnapshot, seq: DatabaseSeq }>,
+  withSnapshotConsistent(updateSnapshot: (snapshot: BulldozerDatabaseSnapshot) => Promise<BulldozerDatabaseSnapshot | BulldozerSnapshotMutationResult>): Promise<{ snapshot: BulldozerDatabaseSnapshot, seq: DatabaseSeq }>,
   waitUntilCurrentStateDurable(): Promise<void>,
+  waitUntilCurrentStateConsistent(): Promise<void>,
   getPiledriverGarbageCollectionProcessStartedAtMillis(): number,
   collectPiledriverGarbage(cutoffTimestampMillis: number, maxObjects?: number): Promise<PiledriverGarbageCollectionResult>,
   close(): Promise<void>,
@@ -958,9 +966,9 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
   });
   const withSnapshot = async (
     updateSnapshot: (snapshot: BulldozerDatabaseSnapshot) => Promise<BulldozerDatabaseSnapshot | BulldozerSnapshotMutationResult>,
-    options: { replicated: boolean },
+    options: { consistent: boolean },
   ) => {
-    return await traceSpan({ description: "bulldozer-js.bulldozer.withSnapshot", attributes: { "bulldozer.replicated": options.replicated } }, async () => {
+    return await traceSpan({ description: "bulldozer-js.bulldozer.withSnapshot", attributes: { "bulldozer.consistent": options.consistent } }, async () => {
       const startedAt = performance.now();
       let writeLockWaitMs = 0;
       let getSnapshotMs = 0;
@@ -968,7 +976,7 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
       let toPiledriverObjectMs = 0;
       let setRootMs = 0;
       let waitUntilAvailableMs = 0;
-      let waitUntilReplicatedMs = 0;
+      let waitUntilConsistentMs = 0;
       let mutationDebugInfo: BulldozerSnapshotMutationDebugInfo | undefined;
       const writeLockWaitStartedAt = performance.now();
       const result = await withWriteLock(async () => {
@@ -992,14 +1000,14 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
         waitUntilAvailableMs = performance.now() - waitUntilAvailableStartedAt;
         return { snapshot: newSnapshot, seq };
       });
-      if (options.replicated) {
-        const waitUntilReplicatedStartedAt = performance.now();
-        await piledriverDatabase.waitUntilReplicated(result.seq);
-        waitUntilReplicatedMs = performance.now() - waitUntilReplicatedStartedAt;
+      if (options.consistent) {
+        const waitUntilConsistentStartedAt = performance.now();
+        await piledriverDatabase.waitUntilConsistent(result.seq);
+        waitUntilConsistentMs = performance.now() - waitUntilConsistentStartedAt;
       }
       if (!shouldSuppressPeriodicBulldozerLogs) {
         console.debug("bulldozer-js withSnapshot timing", inspect({
-          replicated: options.replicated,
+          consistent: options.consistent,
           elapsedMs: performance.now() - startedAt,
           writeLockWaitMs,
           getSnapshotMs,
@@ -1007,7 +1015,7 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
           toPiledriverObjectMs,
           setRootMs,
           waitUntilAvailableMs,
-          waitUntilReplicatedMs,
+          waitUntilConsistentMs,
           mutation: mutationDebugInfo === undefined ? undefined : {
             operation: mutationDebugInfo.operation,
             sourceTableId: mutationDebugInfo.sourceTableId,
@@ -1035,6 +1043,7 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
         closePromise,
       };
     },
+    getPiledriverDatabase: () => piledriverDatabase,
     debugWriteLockStats: () => ({ heldMs: writeLockHeldMs, waitMs: writeLockWaitMs, acquisitions: writeLockAcquisitions }),
     listTables: () => Object.entries(tablesState.tables).map(([tableId, tableState]) => ({
       tableId,
@@ -1048,13 +1057,18 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
     debugPiledriverSnapshot: async () => await piledriverDatabase.debugSnapshot?.() ?? { roots: [], heap: [] },
     debugLowLevelSnapshot: async () => await piledriverDatabase.debugLowLevelSnapshot?.() ?? { stores: {}, dumps: {} },
     getSnapshot,
-    withSnapshot: async (updateSnapshot) => await withSnapshot(updateSnapshot, { replicated: false }),
-    withSnapshotReplicated: async (updateSnapshot) => await withSnapshot(updateSnapshot, { replicated: true }),
+    withSnapshot: async (updateSnapshot) => await withSnapshot(updateSnapshot, { consistent: false }),
+    withSnapshotConsistent: async (updateSnapshot) => await withSnapshot(updateSnapshot, { consistent: true }),
     waitUntilCurrentStateDurable: async () => await traceSpan("bulldozer-js.bulldozer.waitUntilCurrentStateDurable", async () => await withWriteLock(async () => {
       // Taking the write lock makes this a barrier for every earlier mutation.
       // Waiting on the retained write sequence avoids the eviction race where a
       // fresh read sees initialSeq while the original LMDB flush is still pending.
       await piledriverDatabase.waitUntilDurable(latestRootWriteSeq);
+    })),
+    waitUntilCurrentStateConsistent: async () => await traceSpan("bulldozer-js.bulldozer.waitUntilCurrentStateConsistent", async () => await withWriteLock(async () => {
+      // Use the retained write sequence for the same reason as the durability barrier above:
+      // reading a fresh snapshot can lose an evicted instant-availability sequence.
+      await piledriverDatabase.waitUntilConsistent(latestRootWriteSeq);
     })),
     getPiledriverGarbageCollectionProcessStartedAtMillis: () => piledriverDatabase.getGarbageCollectionProcessStartedAtMillis(),
     collectPiledriverGarbage: async (cutoffTimestampMillis, maxObjects) => {
@@ -1101,7 +1115,7 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
       if (snapshot.mostRecentlyCompletedMigrationIndex === options.migrations.length) {
         if (foundExistingRoot) return { seq: currentSeq };
         const { seq } = await setRoot({ snapshot });
-        await piledriverDatabase.waitUntilReplicated(seq);
+        await piledriverDatabase.waitUntilConsistent(seq);
         return { seq };
       }
 
@@ -1144,7 +1158,7 @@ export function declareBulldozerDatabase(piledriverDatabase: PiledriverDatabase,
           uniqueSnapshotIdentifier: crypto.randomUUID(),
         },
       });
-      await piledriverDatabase.waitUntilReplicated(seq);
+      await piledriverDatabase.waitUntilConsistent(seq);
       return { seq };
     })),
   };
