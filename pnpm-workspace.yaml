@@ -45,23 +45,23 @@ patchedDependencies:
 
 allowBuilds:
   "@prisma/engines@7.10.0": true
-  "@temporalio/core-bridge@1.18.1": true
-  "@quetzallabs/i18n@0.1.19": false
-  "@sentry/cli@2.53.0 || 2.58.5": true
+  "@temporalio/core-bridge@1.25.0": true
+  "@quetzallabs/i18n@0.1.19 || 0.1.22": false
+  "@sentry/cli@2.53.0 || 2.58.5 || 2.58.6": true
   "@tailwindcss/oxide@4.1.9": true
   "@vercel/speed-insights@1.0.12": true
-  core-js@3.41.0: true
-  esbuild@0.20.2 || 0.21.5 || 0.23.1 || 0.24.2 || 0.25.11 || 0.25.3 || 0.25.4 || 0.27.1: true
+  core-js@3.41.0 || 3.51.0: true
+  esbuild@0.20.2 || 0.21.5 || 0.23.1 || 0.24.2 || 0.25.11 || 0.25.12 || 0.25.3 || 0.25.4 || 0.27.0 || 0.27.1 || 0.28.2: true
   iframe-resizer@4.4.5: false
   keytar@7.9.0: false
   prisma@7.10.0: true
-  protobufjs@7.5.4 || 7.5.8 || 7.5.9 || 7.6.5 || 7.6.6: true
+  protobufjs@7.5.4 || 7.5.9 || 7.6.6: true
   puppeteer@22.14.0: true
   sharp@0.33.5 || 0.34.5 || 0.35.3 || 0.35.5: true
   # @swc/core ships prebuilt native bindings as optional deps; its postinstall is only a
   # fallback compile step, but @temporalio/worker's workflow bundler needs a working binding.
   "@swc/core@1.15.47": true
-  lmdb@3.5.5: true
+  lmdb@3.5.5 || 3.5.9: true
   msgpackr-extract@3.0.4: true
   better-sqlite3@11.10.0: true
   pprof@5.0.0: true

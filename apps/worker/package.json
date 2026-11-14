@@ -16,16 +16,16 @@
     "@hexclave/backend": "workspace:*",
     "@hexclave/shared": "workspace:*",
     "@hexclave/temporal": "workspace:*",
-    "@sentry/node": "^10.45.0",
-    "@temporalio/client": "1.18.1",
-    "@temporalio/common": "1.18.1",
-    "@temporalio/worker": "1.18.1",
-    "dotenv-cli": "^7.3.0",
-    "tsx": "^4.7.2"
+    "@sentry/node": "^10.78.0",
+    "@temporalio/client": "1.25.0",
+    "@temporalio/common": "1.25.0",
+    "@temporalio/worker": "1.25.0",
+    "dotenv-cli": "^7.4.4",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
-    "@types/node": "20.17.6",
-    "rimraf": "^6.1.2"
+    "@types/node": "20.19.43",
+    "rimraf": "^6.1.4"
   },
   "packageManager": "pnpm@11.5.0"
 }
