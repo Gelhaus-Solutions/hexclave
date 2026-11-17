@@ -1,6 +1,6 @@
 {
   "name": "@hexclave/mock-oauth-server",
-  "version": "1.0.104",
+  "version": "1.0.139",
   "repository": "https://github.com/hexclave/hexclave",
   "private": true,
   "main": "index.js",
@@ -12,14 +12,14 @@
     "clean": "rimraf dist && rimraf node_modules"
   },
   "dependencies": {
-    "@types/express": "^5.0.0",
-    "@types/oidc-provider": "^8.5.1",
-    "express": "^4.21.2",
-    "handlebars": "^4.7.8",
-    "oidc-provider": "^8.5.1"
+    "@types/express": "^5.0.6",
+    "@types/oidc-provider": "^8.8.1",
+    "express": "^4.22.3",
+    "handlebars": "^4.7.10",
+    "oidc-provider": "^8.8.1"
   },
   "devDependencies": {
-    "tsx": "^4.16.2"
+    "tsx": "^4.23.15"
   },
-  "packageManager": "pnpm@11.5.0"
+  "packageManager": "pnpm@11.28.5+sha512.484563d30b4c2ad27cb48aa94ff2b302dbcebc8ff6bf28816c2589886e146ce7f76f354f3bc1a438e6f5e9768c302aa0a6f7add8232903cd4cf81426cbc14d9e"
 }

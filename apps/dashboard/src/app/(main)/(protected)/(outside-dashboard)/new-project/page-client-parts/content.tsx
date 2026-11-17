@@ -3,8 +3,8 @@
 import { DesignDialog } from "@/components/design-components";
 import { DesignButton } from "@/components/design-components/button";
 import { DesignInput } from "@/components/design-components/input";
-import { DesignSelectorDropdown } from "@/components/design-components/select";
 import { useRouter } from "@/components/router";
+import { UserTeamPicker } from "@/components/user-team-picker";
 import {
   Button,
   Card,
@@ -19,30 +19,33 @@ import {
 import { useDashboardInternalUser } from "@/lib/dashboard-user";
 import { getPublicEnvVar } from "@/lib/env";
 import { PlusCircleIcon } from "@phosphor-icons/react";
-import { type AdminOwnedProject } from "@hexclave/next";
-import type { AppId } from "@hexclave/shared/dist/apps/apps-config";
+import { type AdminOwnedProject, type Team } from "@hexclave/next";
 import { runAsynchronouslyWithAlert, wait } from "@hexclave/shared/dist/utils/promises";
+import { firstTeamsPageOptions } from "@hexclave/shared/dist/utils/team-lists";
 import { useSearchParams } from "next/navigation";
-import { type FormEvent, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  NewProjectEntryPage,
   parseOnboardingAppSearchParam,
-  ProductConfigurationWizard,
-  ProductSelectionPage,
-  SetupNewProjectPage,
 } from "./components";
+import {
+  CloudProjectOnboarding,
+  createInitialCloudOnboardingState,
+  type CloudProjectOnboardingState,
+} from "./cloud-project-onboarding";
 import { ProjectOnboardingWizard } from "./project-onboarding-wizard";
 import {
   beginPendingAction,
   endPendingAction,
   getStackAppInternals,
   isProjectOnboardingState,
-  type OnboardingProgressUpdate,
-  type ProjectOnboardingState,
   type ProjectOnboardingStatus,
-  type TimelineStep,
 } from "./shared";
+
+type PersistedOnboardingUpdate = {
+  status?: ProjectOnboardingStatus,
+  onboardingState?: unknown,
+};
 
 export default function PageClient() {
   return (
@@ -60,7 +63,7 @@ export default function PageClient() {
 
 function PageClientInner() {
   const user = useDashboardInternalUser();
-  const teams = user.useTeams();
+  const teams = user.useTeams(firstTeamsPageOptions);
   const projects = user.useOwnedProjects();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -75,21 +78,14 @@ function PageClientInner() {
   const primaryAppFromSearch = parseOnboardingAppSearchParam(searchParams.get("app"));
 
   const [projectStatuses, setProjectStatuses] = useState<Map<string, ProjectOnboardingStatus>>(new Map());
-  const [projectOnboardingStates, setProjectOnboardingStates] = useState<Map<string, ProjectOnboardingState | null>>(new Map());
+  const [projectOnboardingStates, setProjectOnboardingStates] = useState<Map<string, unknown>>(new Map());
   const [projectName, setProjectName] = useState(displayNameFromSearch ?? "");
   const hasProjectName = projectName.trim().length > 0;
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => user.selectedTeam?.id ?? teams.at(0)?.id ?? null);
-  // Integration confirm flows already know they need a project and usually
-  // prefill display_name, so skip Welcome and open the name/team dialog.
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(() => {
-    return redirectToNeonConfirmWith != null || redirectToConfirmWith != null;
-  });
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(() => user.selectedTeam ?? teams.at(0) ?? null);
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
-  const [selectedProductApps, setSelectedProductApps] = useState<Set<AppId> | null>(null);
-  const [isConfiguringProducts, setIsConfiguringProducts] = useState(false);
   const creatingTeamRef = useRef(false);
   const creatingProjectRef = useRef(false);
 
@@ -118,8 +114,7 @@ function PageClientInner() {
       if (trimmedProjectName.length === 0) {
         throw new Error("Project name is required.");
       }
-      const firstTeam = teams.at(0);
-      const teamId = selectedTeamId ?? user.selectedTeam?.id ?? firstTeam?.id;
+      const teamId = selectedTeam?.id;
       if (teamId === undefined) {
         throw new Error("Select a team before creating the project.");
       }
@@ -129,6 +124,25 @@ function PageClientInner() {
         teamId,
         onboardingStatus: "config_choice",
       });
+      const initialOnboardingState = createInitialCloudOnboardingState();
+      const projectInternals = getStackAppInternals(newProject.app);
+      const onboardingResponse = await projectInternals.sendRequest(
+        "/internal/projects/current",
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            onboarding_status: "config_choice",
+            onboarding_state: initialOnboardingState,
+          }),
+        },
+        "admin",
+      );
+      if (!onboardingResponse.ok) {
+        throw new Error(`Failed to initialize onboarding: ${onboardingResponse.status} ${await onboardingResponse.text()}`);
+      }
 
       setProjectStatuses((previous) => {
         const next = new Map(previous);
@@ -137,7 +151,7 @@ function PageClientInner() {
       });
       setProjectOnboardingStates((previous) => {
         const next = new Map(previous);
-        next.set(newProject.id, null);
+        next.set(newProject.id, initialOnboardingState);
         return next;
       });
 
@@ -157,15 +171,15 @@ function PageClientInner() {
         return;
       }
 
-      updateSearchParams({
-        project_id: newProject.id,
-        mode: "deploy",
-      });
-      setIsCreateDialogOpen(false);
+      const nextSearchParams = new URLSearchParams({ project_id: newProject.id });
+      if (primaryAppFromSearch != null) {
+        nextSearchParams.set("app", primaryAppFromSearch);
+      }
+      router.replace(`/new-project?${nextSearchParams.toString()}`);
     } finally {
       endPendingAction(creatingProjectRef, setCreatingProject);
     }
-  }, [projectName, redirectToConfirmWith, redirectToNeonConfirmWith, router, selectedTeamId, teams, updateSearchParams, user]);
+  }, [primaryAppFromSearch, projectName, redirectToConfirmWith, redirectToNeonConfirmWith, router, selectedTeam, user]);
 
   const handleCreateProjectSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -197,14 +211,7 @@ function PageClientInner() {
     if (projectOnboardingStates.has(selectedProjectId)) {
       return projectOnboardingStates.get(selectedProjectId) ?? null;
     }
-    const onboardingState = selectedProject.onboardingState;
-    if (onboardingState == null) {
-      return null;
-    }
-    if (!isProjectOnboardingState(onboardingState)) {
-      throw new Error(`Project ${selectedProject.id} returned an invalid onboarding state.`);
-    }
-    return onboardingState;
+    return selectedProject.onboardingState ?? null;
   }, [projectOnboardingStates, selectedProject, selectedProjectId]);
 
   const isCompletedProjectRelinking = selectedProjectStatus === "completed" && (
@@ -226,7 +233,7 @@ function PageClientInner() {
     router.replace(`/projects/${encodeURIComponent(selectedProject.id)}`);
   }, [isCompletedProjectRelinking, router, selectedProject, selectedProjectStatus]);
 
-  const saveSelectedProjectOnboardingProgress = async (project: AdminOwnedProject, update: OnboardingProgressUpdate) => {
+  const saveSelectedProjectOnboardingProgress = async (project: AdminOwnedProject, update: PersistedOnboardingUpdate) => {
     const projectInternals = getStackAppInternals(project.app);
     const body: Record<string, unknown> = {};
     if (update.status !== undefined) {
@@ -322,95 +329,39 @@ function PageClientInner() {
   }
 
   if (selectedProject == null) {
-    const entrySteps: TimelineStep[] = [{ id: "config_choice", label: "Get started" }];
-    let preProjectPage: ReactNode;
-    if (isConfiguringProducts) {
-      if (selectedProductApps == null) {
-        throw new Error("Product configuration mode requires a product selection.");
-      }
-      preProjectPage = (
-        <ProductConfigurationWizard
-          selectedApps={selectedProductApps}
-          onBack={() => setIsConfiguringProducts(false)}
-        />
-      );
-    } else if (mode === "setup-new-ai") {
-      preProjectPage = (
-        <SetupNewProjectPage
-          steps={entrySteps}
-          currentStep="config_choice"
-          disabled={creatingProject}
-          onBack={() => updateSearchParams({ mode: "setup-products" })}
-        />
-      );
-    } else if (mode === "setup-products") {
-      preProjectPage = (
-        <ProductSelectionPage
-          key={primaryAppFromSearch ?? "primary-app-unset"}
-          steps={entrySteps}
-          currentStep="config_choice"
-          disabled={creatingProject}
-          initialPrimaryAppId={primaryAppFromSearch}
-          onBack={() => updateSearchParams({ mode: null, app: null })}
-          onPrimaryAppSelected={(appId) => updateSearchParams({ app: appId })}
-          onClearPrimaryApp={() => updateSearchParams({ app: null })}
-          onLetAiDecide={() => updateSearchParams({ mode: "setup-new-ai", app: null })}
-          onContinue={(appIds) => {
-            setSelectedProductApps(appIds);
-            setIsConfiguringProducts(true);
-          }}
-        />
-      );
-    } else {
-      preProjectPage = (
-        <NewProjectEntryPage
-          steps={entrySteps}
-          currentStep="config_choice"
-          disabled={creatingProject}
-          onBack={projects.length > 0 ? () => router.push("/projects") : undefined}
-          onSelect={(choice) => {
-            if (choice === "setup-new") {
-              updateSearchParams({ mode: "setup-products" });
-              return;
-            }
-            setSelectedProductApps(null);
-            setIsCreateDialogOpen(true);
-          }}
-        />
-      );
-    }
-
     return (
       <div className="flex w-full flex-grow justify-center">
-        {preProjectPage}
-
         <DesignDialog
-          open={isCreateDialogOpen}
+          open
           onOpenChange={(open) => {
             if (open || creatingProjectRef.current) {
               return;
             }
-            setIsCreateDialogOpen(false);
+            if (projects.length > 0) {
+              router.push("/projects");
+            }
           }}
           size="lg"
           icon={PlusCircleIcon}
           title="Name your project"
           description="Choose a name and the team that will own this Hexclave project."
-          hideTopCloseButton={creatingProject}
+          hideTopCloseButton={creatingProject || projects.length === 0}
           footer={(
             <>
-              <DesignButton
-                type="button"
-                variant="outline"
-                onClick={() => setIsCreateDialogOpen(false)}
-                disabled={creatingProject}
-              >
-                Back
-              </DesignButton>
+              {projects.length > 0 && (
+                <DesignButton
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push("/projects")}
+                  disabled={creatingProject}
+                >
+                  Back
+                </DesignButton>
+              )}
               <DesignButton
                 type="submit"
                 form="create-project-form"
-                disabled={!hasProjectName || selectedTeamId == null || creatingProject}
+                disabled={!hasProjectName || selectedTeam == null || creatingProject}
                 loading={creatingProject}
               >
                 Continue
@@ -433,13 +384,12 @@ function PageClientInner() {
             <div className="space-y-2">
               <Label htmlFor="team-id">Team</Label>
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <DesignSelectorDropdown
-                  value={selectedTeamId ?? ""}
-                  onValueChange={setSelectedTeamId}
+                <UserTeamPicker
+                  user={user}
+                  value={selectedTeam}
+                  onChange={setSelectedTeam}
                   placeholder="Select a team"
-                  size="md"
-                  className="w-full"
-                  options={teams.map((team) => ({ value: team.id, label: team.displayName }))}
+                  triggerId="team-id"
                 />
                 <DesignButton type="button" variant="outline" onClick={() => setIsCreateTeamOpen(true)} className="sm:min-w-[140px]">
                   <PlusCircleIcon className="mr-2 h-4 w-4" />
@@ -485,7 +435,7 @@ function PageClientInner() {
                         displayName: trimmedTeamName,
                       });
                       await user.setSelectedTeam(createdTeam.id);
-                      setSelectedTeamId(createdTeam.id);
+                      setSelectedTeam(createdTeam);
                       setNewTeamName("");
                       setIsCreateTeamOpen(false);
                     } finally {
@@ -514,12 +464,37 @@ function PageClientInner() {
     );
   }
 
+  if (!isDevelopmentEnvironment && !isCompletedProjectRelinking) {
+    return (
+      <div className="flex w-full flex-grow justify-center">
+        <CloudProjectOnboarding
+          project={selectedProject}
+          status={selectedProjectStatus ?? "config_choice"}
+          onboardingState={selectedProjectOnboardingState}
+          primaryAppFromQuery={primaryAppFromSearch}
+          saveProgress={(update: {
+            status?: ProjectOnboardingStatus,
+            onboardingState: CloudProjectOnboardingState,
+          }) => saveSelectedProjectOnboardingProgress(selectedProject, update)}
+          onComplete={() => router.push(`/projects/${encodeURIComponent(selectedProject.id)}`)}
+        />
+      </div>
+    );
+  }
+
+  // Completed-project relinking is independent from first-time onboarding and
+  // does not need the retained cloud completion state.
+  const legacyOnboardingState = isCompletedProjectRelinking ? null : selectedProjectOnboardingState;
+  if (legacyOnboardingState != null && !isProjectOnboardingState(legacyOnboardingState)) {
+    throw new Error(`Project ${selectedProject.id} returned an invalid development-environment onboarding state.`);
+  }
+
   return (
     <div className="flex w-full flex-grow justify-center">
       <ProjectOnboardingWizard
         project={selectedProject}
         status={selectedProjectStatus ?? "config_choice"}
-        onboardingState={selectedProjectOnboardingState}
+        onboardingState={legacyOnboardingState}
         mode={mode}
         setMode={(nextMode) => updateSearchParams({ mode: nextMode })}
         saveOnboardingProgress={(update) => saveSelectedProjectOnboardingProgress(selectedProject, update)}

@@ -1,4 +1,4 @@
-import { OAuthUserInfo, validateUserInfo } from "../utils";
+import { OAuthUserInfo, parseEmailVerifiedClaim, validateUserInfo } from "../utils";
 import { OAuthBaseProvider, TokenSet } from "./base";
 
 export class CustomOidcProvider extends OAuthBaseProvider {
@@ -23,6 +23,12 @@ export class CustomOidcProvider extends OAuthBaseProvider {
       redirectUri,
       baseScope: scope || "openid email profile",
       openid: true,
+      // Spec-compliant IdPs (Okta, Auth0, Keycloak, Entra via generic OIDC, ...) honor
+      // prompt=consent by ignoring existing grants and re-showing the consent screen on
+      // every sign-in, which for enterprise tenants often turns into an admin-approval
+      // wall. Same reasoning as MicrosoftProvider. Refresh tokens are still issued
+      // whenever the configured scope includes offline_access.
+      noConsentPrompt: true,
       ...rest,
     }));
   }
@@ -35,7 +41,7 @@ export class CustomOidcProvider extends OAuthBaseProvider {
       email: rawUserInfo.email ?? null,
       profileImageUrl: rawUserInfo.picture ?? null,
       // Trust the admin's "treat emails as verified" toggle when the provider omits the claim.
-      emailVerified: !!rawUserInfo.email_verified || this.trustEmailVerified,
+      emailVerified: parseEmailVerifiedClaim(rawUserInfo.email_verified) || this.trustEmailVerified,
     });
   }
 

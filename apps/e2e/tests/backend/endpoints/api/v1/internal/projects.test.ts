@@ -1,3 +1,4 @@
+import { throwErr } from "@hexclave/shared/dist/utils/errors";
 import { it } from "../../../../../helpers";
 import { Auth, InternalProjectClientKeys, InternalProjectKeys, Project, backendContext, niceBackendFetch } from "../../../../backend-helpers";
 
@@ -155,6 +156,46 @@ it("updates onboarding status and state together without modifying config", asyn
   });
   expect(afterResponse.status).toBe(200);
   expect(afterResponse.body.onboarding_status).toBe("auth_setup");
+  expect(afterResponse.body.onboarding_state).toEqual(onboardingState);
+  expect(afterResponse.body.config).toEqual(beforeResponse.body.config);
+});
+
+it("persists versioned cloud onboarding progress without modifying config", async ({ expect }) => {
+  await Project.createAndSwitch();
+  const beforeResponse = await niceBackendFetch("/api/v1/internal/projects/current", {
+    accessType: "admin",
+  });
+  expect(beforeResponse.status).toBe(200);
+
+  const onboardingState = {
+    version: 1 as const,
+    step: "setup-github-workflow" as const,
+    journey: "add" as const,
+    primary_app_id: "authentication" as const,
+    additional_app_ids: [] as const,
+    selected_apps: ["authentication", "analytics"] as const,
+    selected_sign_in_methods: ["credential", "github"] as const,
+    selected_email_theme_id: "a0172b5d-cff0-463b-83bb-85124697373a",
+    project_location: "github" as const,
+  };
+
+  const patchResponse = await niceBackendFetch("/api/v1/internal/projects/current", {
+    accessType: "admin",
+    method: "PATCH",
+    body: {
+      onboarding_status: "config_choice",
+      onboarding_state: onboardingState,
+    },
+  });
+  expect(patchResponse.status).toBe(200);
+  expect(patchResponse.body.onboarding_status).toBe("config_choice");
+  expect(patchResponse.body.onboarding_state).toEqual(onboardingState);
+  expect(patchResponse.body.config).toEqual(beforeResponse.body.config);
+
+  const afterResponse = await niceBackendFetch("/api/v1/internal/projects/current", {
+    accessType: "admin",
+  });
+  expect(afterResponse.status).toBe(200);
   expect(afterResponse.body.onboarding_state).toEqual(onboardingState);
   expect(afterResponse.body.config).toEqual(beforeResponse.body.config);
 });
@@ -819,4 +860,30 @@ it("lets user update logo_url to a valid image", async ({ expect }) => {
       "headers": Headers { <some fields may have been hidden> },
     }
   `);
+});
+
+it("still lists a project whose config has a trusted domain the projects API can't represent, leaving that domain out", async ({ expect }) => {
+  await Auth.fastSignUp();
+  const { projectId } = await Project.create();
+  const adminAccessToken = backendContext.value.userAuth?.accessToken ?? throwErr("fastSignUp should have signed in a user");
+
+  // Config overrides only warn about invalid values like this one on write, so they can end up stored.
+  const overrideResponse = await backendContext.with({ projectKeys: { projectId, adminAccessToken }, userAuth: null }, async () => {
+    return await niceBackendFetch("/api/v1/internal/config/override/environment", {
+      method: "PATCH",
+      accessType: "admin",
+      body: {
+        config_override_string: JSON.stringify({
+          "domains.trustedDomains.valid-domain": { baseUrl: "https://example.com", handlerPath: "/handler" },
+          "domains.trustedDomains.invalid-domain": { baseUrl: "https://not a url", handlerPath: "/handler" },
+        }),
+      },
+    });
+  });
+  expect(overrideResponse.status).toBe(200);
+
+  const response = await niceBackendFetch("/api/v1/internal/projects", { accessType: "client" });
+  expect(response.status).toBe(200);
+  const project = response.body.items.find((item: { id: string }) => item.id === projectId);
+  expect(project.config.domains).toEqual([{ domain: "https://example.com", handler_path: "/handler" }]);
 });

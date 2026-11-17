@@ -2,7 +2,7 @@ import { CrudTypeOf, createCrud } from "../../crud";
 import { ALL_APPS } from "../../apps/apps-config";
 import { onboardingPaymentsCountryValues } from "../../payments/payment-countries";
 import * as schemaFields from "../../schema-fields";
-import { yupArray, yupObject, yupString } from "../../schema-fields";
+import { yupArray, yupNumber, yupObject, yupString, yupUnion } from "../../schema-fields";
 
 const teamPermissionSchema = yupObject({
   id: yupString().defined(),
@@ -62,13 +62,44 @@ const configWarningSchema = yupObject({
 const onboardingConfigChoiceValues = ["create-new", "link-existing"] as const;
 const onboardingSignInMethodValues = ["credential", "magicLink", "passkey", "google", "github", "microsoft"] as const;
 
-const projectOnboardingStateSchema = yupObject({
+const legacyProjectOnboardingStateSchema = yupObject({
   selected_config_choice: yupString().oneOf(onboardingConfigChoiceValues).defined(),
   selected_apps: yupArray(yupString().oneOf(Object.keys(ALL_APPS)).defined()).defined(),
   selected_sign_in_methods: yupArray(yupString().oneOf(onboardingSignInMethodValues).defined()).defined(),
   selected_email_theme_id: schemaFields.emailThemeSchema.nullable().defined(),
   selected_payments_country: yupString().oneOf(onboardingPaymentsCountryValues).defined(),
 });
+
+const cloudOnboardingStepValues = [
+  "welcome-to-hexclave",
+  "select-primary-app",
+  "select-additional-apps",
+  "configure-authentication",
+  "select-email-theme",
+  "setup-sdk",
+  "development-setup-complete",
+  "where-is-project",
+  "cli-push",
+  "setup-github-workflow",
+  "onboarding-complete",
+] as const;
+
+export const cloudProjectOnboardingStateSchema = yupObject({
+  version: yupNumber().oneOf([1]).defined(),
+  step: yupString().oneOf(cloudOnboardingStepValues).defined(),
+  journey: yupString().oneOf(["add", "deploy-existing"]).defined(),
+  primary_app_id: yupString().oneOf(Object.keys(ALL_APPS)).nullable().defined(),
+  additional_app_ids: yupArray(yupString().oneOf(Object.keys(ALL_APPS)).defined()).defined(),
+  selected_apps: yupArray(yupString().oneOf(Object.keys(ALL_APPS)).defined()).defined(),
+  selected_sign_in_methods: yupArray(yupString().oneOf(onboardingSignInMethodValues).defined()).defined(),
+  selected_email_theme_id: schemaFields.emailThemeSchema.nullable().defined(),
+  project_location: yupString().oneOf(["local", "github"]).nullable().defined(),
+}).defined();
+
+const projectOnboardingStateSchema = yupUnion(
+  legacyProjectOnboardingStateSchema,
+  cloudProjectOnboardingStateSchema,
+);
 
 export const emailConfigSchema = yupObject({
   type: schemaFields.emailTypeSchema.defined(),
@@ -94,7 +125,8 @@ export const emailConfigSchema = yupObject({
 
 export const emailConfigWithoutPasswordSchema = emailConfigSchema.pick(['type', 'host', 'port', 'username', 'sender_name', 'sender_email']);
 
-const domainSchema = yupObject({
+/** A trusted domain as the projects API returns it. */
+export const projectDomainSchema = yupObject({
   domain: schemaFields.urlSchema.defined()
     .matches(/^https?:\/\//, 'URL must start with http:// or https://')
     .meta({ openapiField: { description: 'URL. Must start with http:// or https://', exampleValue: 'https://example.com' } }),
@@ -133,7 +165,7 @@ export const projectsCrudAdminReadSchema = yupObject({
     allow_team_api_keys: schemaFields.yupBoolean().defined(),
     oauth_providers: yupArray(oauthProviderReadSchema.defined()).defined(),
     enabled_oauth_providers: yupArray(enabledOAuthProviderSchema.defined()).defined().meta({ openapiField: { hidden: true } }),
-    domains: yupArray(domainSchema.defined()).defined(),
+    domains: yupArray(projectDomainSchema.defined()).defined(),
     email_config: emailConfigSchema.defined(),
     email_theme: schemaFields.emailThemeSchema.defined(),
     create_team_on_sign_up: schemaFields.projectCreateTeamOnSignUpSchema.defined(),
@@ -163,7 +195,7 @@ export const projectsCrudClientReadSchema = yupObject({
     allow_user_api_keys: schemaFields.yupBoolean().defined(),
     allow_team_api_keys: schemaFields.yupBoolean().defined(),
     enabled_oauth_providers: yupArray(enabledOAuthProviderSchema.defined()).defined().meta({ openapiField: { hidden: true } }),
-    domains: yupArray(domainSchema.defined()).defined(),
+    domains: yupArray(projectDomainSchema.defined()).defined(),
   }).defined().meta({ openapiField: { hidden: true } }),
 }).defined();
 
@@ -193,7 +225,7 @@ export const projectsCrudAdminUpdateSchema = yupObject({
     allow_team_api_keys: schemaFields.yupBoolean().optional(),
     email_config: emailConfigSchema.optional().default(undefined),
     email_theme: schemaFields.emailThemeSchema.optional(),
-    domains: yupArray(domainSchema.defined()).optional().default(undefined),
+    domains: yupArray(projectDomainSchema.defined()).optional().default(undefined),
     oauth_providers: yupArray(oauthProviderWriteSchema.defined()).optional().default(undefined),
     create_team_on_sign_up: schemaFields.projectCreateTeamOnSignUpSchema.optional(),
     team_creator_default_permissions: yupArray(teamPermissionSchema.defined()).optional(),

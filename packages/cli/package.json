@@ -1,6 +1,6 @@
 {
   "name": "@hexclave/cli",
-  "version": "1.0.104",
+  "version": "1.0.139",
   "repository": "https://github.com/hexclave/hexclave",
   "description": "The CLI for Hexclave. https://hexclave.com",
   "main": "dist/index.js",
@@ -28,23 +28,23 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@inquirer/prompts": "^7.0.0",
-    "@sentry/node": "^10.42.0",
+    "@inquirer/prompts": "^7.10.1",
+    "@sentry/node": "^10.78.0",
     "@hexclave/shared-backend": "workspace:*",
     "@hexclave/js": "workspace:*",
     "@hexclave/shared": "workspace:*",
     "commander": "^13.1.0",
     "cross-spawn": "^7.0.6",
     "extract-zip": "^2.0.1",
-    "jiti": "^2.4.2",
-    "tar": "^7.4.3"
+    "jiti": "^2.7.0",
+    "tar": "^7.5.22"
   },
   "devDependencies": {
     "@types/cross-spawn": "^6.0.6",
-    "@types/node": "22.15.21",
-    "rimraf": "^6.0.1",
-    "tsdown": "^0.22.3",
+    "@types/node": "22.20.5",
+    "rimraf": "^6.1.4",
+    "tsdown": "^0.22.14",
     "typescript": "6.0.3"
   },
-  "packageManager": "pnpm@11.5.0"
+  "packageManager": "pnpm@11.28.5+sha512.484563d30b4c2ad27cb48aa94ff2b302dbcebc8ff6bf28816c2589886e146ce7f76f354f3bc1a438e6f5e9768c302aa0a6f7add8232903cd4cf81426cbc14d9e"
 }

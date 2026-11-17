@@ -1,6 +1,6 @@
 {
   "name": "@hexclave/example-tanstack-start-demo",
-  "version": "1.0.104",
+  "version": "1.0.139",
   "repository": "https://github.com/hexclave/hexclave",
   "description": "TanStack Start demo app for Hexclave",
   "private": true,
@@ -17,24 +17,24 @@
     "@hexclave/shared": "workspace:*",
     "@hexclave/ui": "workspace:*",
     "@hexclave/tanstack-start": "workspace:*",
-    "@tanstack/react-router": "^1.168.23",
-    "@tanstack/react-start": "^1.167.42",
+    "@tanstack/react-router": "^1.170.46",
+    "@tanstack/react-start": "^1.169.4",
     "nitro": "^3.0.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.13.0",
+    "@types/node": "^22.20.5",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "^5.0.0",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
+    "@vitejs/plugin-react": "^5.2.0",
+    "autoprefixer": "^10.6.2",
+    "postcss": "^8.5.32",
     "rimraf": "^5.0.10",
-    "tailwindcss": "^3.4.14",
+    "tailwindcss": "^3.4.19",
     "typescript": "6.0.3",
-    "vite": "^7.0.0",
+    "vite": "^7.3.7",
     "vite-tsconfig-paths": "^4.3.2"
   },
-  "packageManager": "pnpm@11.5.0"
+  "packageManager": "pnpm@11.28.5+sha512.484563d30b4c2ad27cb48aa94ff2b302dbcebc8ff6bf28816c2589886e146ce7f76f354f3bc1a438e6f5e9768c302aa0a6f7add8232903cd4cf81426cbc14d9e"
 }

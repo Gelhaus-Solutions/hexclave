@@ -195,20 +195,35 @@ Does not error.
 
 Arguments:
   options.userId: string? - filter by user membership
+  options.limit: number? - max results, 1 to 200. If omitted, all teams are returned, but the backend returns 400 when more than 500 teams match. Do not substitute a default; send limit only when the caller passed one.
+  options.cursor: string? - nextCursor of the previous page. Requires limit (the backend returns 400 otherwise).
+  options.query: string? - free-text search; exact match on team ID (if it is a UUID), substring match on display name
+  options.orderBy: "createdAt"? - sort field (sent as order_by=created_at)
+  options.desc: bool? - descending order (default ascending)
 
-Returns: ServerTeam[]
+Returns: ServerTeam[] & { nextCursor: string | null }
 
 Request:
   GET /api/v1/teams [server-only]
-  Query params: user_id?
-
-Note: This endpoint does NOT support pagination parameters like limit/cursor.
-Use optional user_id filter to get teams a specific user belongs to.
+  Query params: user_id?, limit?, cursor?, query?, order_by?, desc?
 
 Response:
-  { items: [ServerTeamCrud, ...] }
+  {
+    items: [ServerTeamCrud, ...],
+    is_paginated: bool,
+    pagination?: { next_cursor: string | null }
+  }
 
-Does not error.
+nextCursor is pagination.next_cursor, or null if absent. Treat it as opaque (pass it back unchanged); it stays valid
+even if the team it was derived from is deleted later, so cached pages can be refetched after any team mutation. Without limit, the backend returns every
+matching team with is_paginated: false and no pagination, as long as at most 500 teams match; past that it returns
+400. Implementations should still read pagination.next_cursor whenever it is present.
+Languages that can't attach a property to an array may instead expose listTeams() returning only the items, plus a
+page-returning variant (e.g. Swift's listTeamsPage, returning { items, nextCursor }).
+
+Errors:
+  400 Bad Request: limit was omitted and more than 500 teams match. Surface it to the caller; don't retry with a
+  default limit, as that would silently truncate the list.
 
 
 ## createTeam(options)
@@ -290,6 +305,196 @@ Errors:
   AnalyticsQueryError
     code: "ANALYTICS_QUERY_ERROR"
     message: sanitized ClickHouse query error
+
+
+## listSessionReplays(options?)
+
+Arguments:
+  options.limit: number? - max results
+  options.cursor: string? - pagination cursor
+  options.userIds: string[]? - only replays recorded by these users
+  options.teamIds: string[]? - only replays recorded by members of these teams
+  options.durationMsMin: number? - min replay duration in milliseconds
+  options.durationMsMax: number? - max replay duration in milliseconds
+  options.lastEventAtFromMillis: number? - only replays whose last event is at or after this Unix ms timestamp
+  options.lastEventAtToMillis: number? - only replays whose last event is at or before this Unix ms timestamp
+  options.clickCountMin: number? - only replays with at least this many click events
+
+Returns:
+  {
+    items: AdminSessionReplay[],
+    nextCursor: string | null
+  }
+
+Request:
+  GET /api/v1/session-replays [server-only]
+  Query params: cursor?, limit?, user_ids? (comma-separated), team_ids? (comma-separated),
+                duration_ms_min?, duration_ms_max?, last_event_at_from_millis?,
+                last_event_at_to_millis?, click_count_min?
+
+Response:
+  {
+    items: [{
+      id: string,
+      refresh_token_id: string,
+      project_user: { id: string, display_name: string | null, primary_email: string | null },
+      started_at_millis: number,
+      last_event_at_millis: number,
+      chunk_count: number,
+      event_count: number
+    }],
+    pagination: { next_cursor: string | null }
+  }
+
+Lists session replay recordings for the current project, most recently active first.
+
+Errors:
+  ItemNotFound
+    code: "ITEM_NOT_FOUND"
+    when: the cursor does not refer to a replay in this project
+
+
+## getSessionReplay(sessionReplayId)
+
+Arguments:
+  sessionReplayId: string - the replay's id
+
+Returns: AdminSessionReplay
+
+Request:
+  GET /api/v1/session-replays/{session_replay_id} [server-only]
+
+Response:
+  {
+    id: string,
+    refresh_token_id: string,
+    project_user: { id: string, display_name: string | null, primary_email: string | null },
+    started_at_millis: number,
+    last_event_at_millis: number,
+    chunk_count: number,
+    event_count: number
+  }
+
+Errors:
+  ItemNotFound
+    code: "ITEM_NOT_FOUND"
+    when: no replay with that id exists in this project
+
+
+## listSessionReplayChunks(sessionReplayId, options?)
+
+Arguments:
+  sessionReplayId: string - the replay's id
+  options.limit: number? - max results
+  options.cursor: string? - pagination cursor
+
+Returns:
+  {
+    items: AdminSessionReplayChunk[],
+    nextCursor: string | null
+  }
+
+Request:
+  GET /api/v1/session-replays/{session_replay_id}/chunks [server-only]
+  Query params: cursor?, limit?
+
+Response:
+  {
+    items: [{
+      id: string,
+      batch_id: string,
+      session_replay_segment_id: string | null,
+      browser_session_id: string | null,
+      event_count: number,
+      byte_length: number,
+      first_event_at_millis: number,
+      last_event_at_millis: number,
+      created_at_millis: number
+    }],
+    pagination: { next_cursor: string | null }
+  }
+
+Lists the recorded chunks of a replay in chronological order, without their event payloads.
+
+Errors:
+  ItemNotFound
+    code: "ITEM_NOT_FOUND"
+    when: no replay with that id exists in this project, or the cursor does not refer to one of its chunks
+
+
+## getSessionReplayChunkEvents(sessionReplayId, chunkId)
+
+Arguments:
+  sessionReplayId: string - the replay's id
+  chunkId: string - the chunk's id, which must belong to that replay
+
+Returns:
+  {
+    events: unknown[]
+  }
+
+Request:
+  GET /api/v1/session-replays/{session_replay_id}/chunks/{chunk_id}/events [server-only]
+
+Response:
+  {
+    events: unknown[]
+  }
+
+Returns the raw rrweb events of a single chunk. Unlike the other four methods, the response is
+returned verbatim rather than mapped to a camelCase domain type; it carries no chunk id, so the
+caller must track which chunk it asked for.
+
+Errors:
+  ItemNotFound
+    code: "ITEM_NOT_FOUND"
+    when: the chunk does not exist or does not belong to that replay in this project
+
+
+## getSessionReplayEvents(sessionReplayId, options?)
+
+Arguments:
+  sessionReplayId: string - the replay's id
+  options.offset: number? - index of the first chunk to fetch events for, default 0
+  options.limit: number? - number of chunks to fetch events for, default all remaining chunks
+
+Returns:
+  {
+    chunks: [{
+      id, batchId, sessionReplaySegmentId, eventCount, byteLength,
+      firstEventAt: Date, lastEventAt: Date, createdAt: Date
+    }],
+    chunkEvents: [{ chunkId: string, events: unknown[] }]
+  }
+
+Request:
+  GET /api/v1/session-replays/{session_replay_id}/events [server-only]
+  Query params: offset?, limit?
+
+Response:
+  {
+    chunks: [{
+      id: string,
+      batch_id: string,
+      session_replay_segment_id: string | null,
+      event_count: number,
+      byte_length: number,
+      first_event_at_millis: number,
+      last_event_at_millis: number,
+      created_at_millis: number
+    }],
+    chunk_events: [{ chunk_id: string, events: unknown[] }]
+  }
+
+Returns the rrweb events of a whole replay. `chunks` always lists every chunk of the replay so the
+caller can page through them; `chunk_events` only contains the events of the chunks selected by
+`offset`/`limit`. Omitting `limit` downloads every chunk, which can be a large response for a long
+recording.
+
+Errors:
+  ItemNotFound
+    code: "ITEM_NOT_FOUND"
+    when: no replay with that id exists in this project
 
 
 ## sendEmail(options)

@@ -500,7 +500,7 @@ export function ProjectOnboardingWizard(props: {
     });
   };
 
-  const openPlainProductionOnboarding = useCallback(async () => {
+  const openDashboardManagedOnboarding = useCallback(async () => {
     await runWithSaving(async () => {
       const nextOnboardingState = createProjectOnboardingState({
         selectedConfigChoice: "create-new",
@@ -673,17 +673,6 @@ export function ProjectOnboardingWizard(props: {
       );
     }
 
-    if (props.mode === "setup-new") {
-      return (
-        <SetupNewProjectPage
-          steps={timelineSteps}
-          currentStep="config_choice"
-          onBack={() => setMode(null)}
-          disabled={saving}
-        />
-      );
-    }
-
     if (props.mode === "deploy") {
       return (
         <DeploymentChoicePage
@@ -697,7 +686,7 @@ export function ProjectOnboardingWizard(props: {
           showAdvancedProductionOption
           onSelect={(source) => {
             if (source === "plain-production") {
-              runAsynchronouslyWithAlert(openPlainProductionOnboarding);
+              runAsynchronouslyWithAlert(openDashboardManagedOnboarding);
               return;
             }
             runAsynchronouslyWithAlert(() => openDeploymentSource(source === "local" ? "deploy-local" : "deploy-github"));
@@ -712,7 +701,13 @@ export function ProjectOnboardingWizard(props: {
         currentStep="config_choice"
         onBack={handleBack}
         disabled={saving}
-        onSelect={setMode}
+        onSelect={(choice) => {
+          if (choice === "setup-new") {
+            runAsynchronouslyWithAlert(openDashboardManagedOnboarding);
+          } else {
+            setMode(choice);
+          }
+        }}
       />
     );
   }

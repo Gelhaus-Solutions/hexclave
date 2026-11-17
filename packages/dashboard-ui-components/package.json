@@ -1,6 +1,6 @@
 {
   "name": "@hexclave/dashboard-ui-components",
-  "version": "1.0.104",
+  "version": "1.0.139",
   "license": "AGPL-3.0-only",
   "repository": "https://github.com/hexclave/hexclave",
   "main": "./dist/index.js",
@@ -51,22 +51,22 @@
     }
   },
   "dependencies": {
-    "@phosphor-icons/react": "^2.1.7",
-    "@radix-ui/react-slot": "^1.1.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@radix-ui/react-slot": "^1.5.0",
     "@hexclave/shared": "workspace:*",
     "@hexclave/ui": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.13.0",
-    "class-variance-authority": "^0.7.0"
+    "@tanstack/react-virtual": "^3.14.26",
+    "class-variance-authority": "^0.7.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "esbuild": "^0.24.0",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
+    "esbuild": "^0.24.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "recharts": "^2.14.1",
     "rimraf": "^5.0.10"
   },
-  "packageManager": "pnpm@11.5.0"
+  "packageManager": "pnpm@11.28.5+sha512.484563d30b4c2ad27cb48aa94ff2b302dbcebc8ff6bf28816c2589886e146ce7f76f354f3bc1a438e6f5e9768c302aa0a6f7add8232903cd4cf81426cbc14d9e"
 }

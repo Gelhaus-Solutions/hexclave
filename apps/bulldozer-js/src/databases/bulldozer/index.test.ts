@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { declareInMemoryLowLevelDatabase } from "../low-level/implementations/in-memory.js";
 import { declareInstantAvailabilityLowLevelDatabase } from "../low-level/implementations/instant-availability.js";
 import { declareLmdbLowLevelDatabase } from "../low-level/implementations/lmdb.js";
+import type { DatabaseSeq } from "../index.js";
 import { declareBasePiledriverDatabase } from "../piledriver/implementations/base.js";
+import { declareBufferedPiledriverDatabase } from "../piledriver/implementations/buffered.js";
 import { declareInMemoryPiledriverDatabase } from "../piledriver/implementations/in-memory.js";
-import type { PiledriverObject } from "../piledriver/index.js";
+import { asHeapObject, type PiledriverObject } from "../piledriver/index.js";
 import { ConcatTreeList } from "../piledriver/data-structures/concat-tree-list.js";
 import { stringCompare } from "@hexclave/shared/dist/utils/strings";
 import {
@@ -59,6 +61,67 @@ const rows = (snapshot: Awaited<ReturnType<typeof initializedSnapshot>>, tableId
   asRows(snapshot.listRowsInGroup({ tableId, groupKey, range }));
 const set = async (snapshot: Awaited<ReturnType<typeof initializedSnapshot>>, tableId: string, rowIdentifier: string, newRowData: PiledriverObject | undefined) =>
   (await snapshot.setOrDeleteRow({ tableId, rowIdentifier, newRowData })).newSnapshot;
+
+describe("Bulldozer row validation", () => {
+  it("rejects rows Piledriver can't save before they reach the snapshot, so later writes still save", async () => {
+    // Prod buffers Piledriver writes in memory. A bad row that got into that in-memory state would
+    // make every later save fail too (each write builds on the previous state), so it must be
+    // rejected here, before any state changes.
+    const db = declareBulldozerDatabase(declareBufferedPiledriverDatabase(declareInMemoryPiledriverDatabase(crypto.randomUUID())), {
+      migrations: [[{ type: "initTable", tableId: "store", table: defineStoredTable(), inputTables: {} }]],
+    });
+    await db.applyRemainingMigrations();
+    // Reflect.set stores the value without the type checker seeing it, like a cast would.
+    const rowWith = (value: unknown) => {
+      const row: { [key: string]: PiledriverObject } = {};
+      Reflect.set(row, "field", value);
+      return row;
+    };
+    await expect(db.withSnapshotConsistent(s => s.setOrDeleteRow({ tableId: "store", rowIdentifier: "bad", newRowData: rowWith(new Date(0)) })))
+      .rejects.toThrow("Cannot save a value of type Date");
+    await expect(db.withSnapshotConsistent(s => s.setOrDeleteRows({ tableId: "store", rows: [{ rowIdentifier: "bad-batch", newRowData: rowWith(1n) }] })))
+      .rejects.toThrow("Cannot save a value of type bigint");
+    // A heap object the caller made is saved along with the row, so what's inside it is checked too.
+    await expect(db.withSnapshotConsistent(s => s.setOrDeleteRow({ tableId: "store", rowIdentifier: "bad-heap-object", newRowData: { field: asHeapObject(rowWith(new Date(0))) } })))
+      .rejects.toThrow("Cannot save a value of type Date");
+
+    await db.withSnapshotConsistent(s => s.setOrDeleteRow({ tableId: "store", rowIdentifier: "good", newRowData: { field: "ok" } }));
+    const { snapshot } = await db.getSnapshot();
+    expect((await rows(snapshot, "store")).map(row => row.rowIdentifier)).toEqual(["good"]);
+    await db.close();
+  });
+
+  it("rejects rows nested more than 1,000 levels deep before they reach the snapshot, and saves rows up to that", async () => {
+    // Customer-defined JSON (product metadata) can be nested arbitrarily. Real data is a few levels
+    // deep; thousands of levels is abuse or a buggy script, and saving it fails deep inside the write
+    // path, where prod's buffered writer would then fail every later save too.
+    const nestedRow = (depth: number) => {
+      let value: PiledriverObject = "leaf";
+      for (let i = 0; i < depth; i++) value = i % 2 === 0 ? { m: value } : [value];
+      return { field: value };
+    };
+    const db = declareBulldozerDatabase(declareBufferedPiledriverDatabase(declareInMemoryPiledriverDatabase(crypto.randomUUID())), {
+      migrations: [[{ type: "initTable", tableId: "store", table: defineStoredTable(), inputTables: {} }]],
+    });
+    await db.applyRemainingMigrations();
+    await expect(db.withSnapshotConsistent(s => s.setOrDeleteRow({ tableId: "store", rowIdentifier: "too-deep", newRowData: nestedRow(1_000) })))
+      .rejects.toThrow("nested more than 1000 levels deep");
+    await expect(db.withSnapshotConsistent(s => s.setOrDeleteRows({ tableId: "store", rows: [{ rowIdentifier: "too-deep-batch", newRowData: nestedRow(5_000) }] })))
+      .rejects.toThrow("nested more than 1000 levels deep");
+    // A heap object that contains itself is caught the same way as a plain object that does.
+    const selfContaining: { [key: string]: PiledriverObject } = {};
+    selfContaining.self = asHeapObject(selfContaining);
+    await expect(db.withSnapshotConsistent(s => s.setOrDeleteRow({ tableId: "store", rowIdentifier: "contains-itself", newRowData: { field: selfContaining } })))
+      .rejects.toThrow("nested more than 1000 levels deep (or one that contains itself)");
+
+    // The row object itself is the first level, so 999 levels inside it is exactly at the limit.
+    await db.withSnapshotConsistent(s => s.setOrDeleteRow({ tableId: "store", rowIdentifier: "deepest-allowed", newRowData: nestedRow(999) }));
+    await db.withSnapshotConsistent(s => s.setOrDeleteRow({ tableId: "store", rowIdentifier: "good", newRowData: { field: "ok" } }));
+    const { snapshot } = await db.getSnapshot();
+    expect((await rows(snapshot, "store")).map(row => row.rowIdentifier).sort()).toEqual(["deepest-allowed", "good"]);
+    await db.close();
+  });
+});
 
 describe.each(["base", "in-memory"] as const)("Bulldozer (%s)", backend => {
   it("persists an empty snapshot for zero migrations", async () => {
@@ -527,9 +590,9 @@ describe.each(["base", "in-memory"] as const)("Bulldozer (%s)", backend => {
       }), inputTables: { input: "store" } },
     ]]);
     await db.applyRemainingMigrations();
-    await db.withSnapshotReplicated(async snapshot => await set(snapshot, "store", "a", "A"));
+    await db.withSnapshotConsistent(async snapshot => await set(snapshot, "store", "a", "A"));
 
-    const { snapshot } = await db.withSnapshotReplicated(async snapshot => await snapshot.tick(new Date(trigger)));
+    const { snapshot } = await db.withSnapshotConsistent(async snapshot => await snapshot.tick(new Date(trigger)));
     expect(await rows(snapshot, "time")).toEqual([
       { groupKey: null, rowIdentifier: JSON.stringify(["a", 0]), rowSortKey: null, rowData: "initial" },
       { groupKey: null, rowIdentifier: JSON.stringify(["a", 1]), rowSortKey: null, rowData: "tick" },
@@ -1035,7 +1098,7 @@ describe.each(["base", "in-memory"] as const)("Bulldozer (%s)", backend => {
 
     const dbV1 = declareBulldozerDatabase(piledriver, { migrations: [migration1] });
     await dbV1.applyRemainingMigrations();
-    await dbV1.withSnapshotReplicated(async snapshot => {
+    await dbV1.withSnapshotConsistent(async snapshot => {
       snapshot = await set(snapshot, "store", "a", 1);
       snapshot = await set(snapshot, "store", "b", 2);
       return snapshot;
@@ -1454,7 +1517,7 @@ describe.each(["base", "in-memory"] as const)("Bulldozer (%s)", backend => {
     ]];
     const db1 = declareBulldozerDatabase(declareBasePiledriverDatabase(declareInMemoryLowLevelDatabase(lowLevelId)), { migrations });
     await db1.applyRemainingMigrations();
-    await db1.withSnapshotReplicated(async snapshot => {
+    await db1.withSnapshotConsistent(async snapshot => {
       for (const value of [1, 2, 3]) snapshot = await set(snapshot, "store", `r${value}`, value);
       return snapshot;
     });
@@ -1572,10 +1635,34 @@ describe("Bulldozer (base Piledriver only)", () => {
     }
   });
 
+  it("waits for the current root write to become consistent", async () => {
+    const piledriver = declareInMemoryPiledriverDatabase(crypto.randomUUID());
+    const waitUntilConsistent = piledriver.waitUntilConsistent.bind(piledriver);
+    let waitedSeq: DatabaseSeq | undefined;
+    piledriver.waitUntilConsistent = async (seq) => {
+      waitedSeq = seq;
+      await waitUntilConsistent(seq);
+    };
+    const db = declareBulldozerDatabase(piledriver, {
+      migrations: [[{ type: "initTable", tableId: "store", table: defineStoredTable(), inputTables: {} }]],
+    });
+    try {
+      await db.applyRemainingMigrations();
+      waitedSeq = undefined;
+
+      const write = await db.withSnapshot(async snapshot => await set(snapshot, "store", "a", 1));
+      await db.waitUntilCurrentStateConsistent();
+
+      expect(waitedSeq).toBe(write.seq);
+    } finally {
+      await db.close();
+    }
+  });
+
   it("exposes Piledriver and low-level debug snapshots when available", async () => {
     const db = newDb("base", [[{ type: "initTable", tableId: "store", table: defineStoredTable(), inputTables: {} }]]);
     await db.applyRemainingMigrations();
-    await db.withSnapshotReplicated(async snapshot => await set(snapshot, "store", "a", { value: 1 }));
+    await db.withSnapshotConsistent(async snapshot => await set(snapshot, "store", "a", { value: 1 }));
 
     const piledriver = await db.debugPiledriverSnapshot!();
     expect(piledriver.roots).toHaveLength(1);
